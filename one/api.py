@@ -38,6 +38,32 @@ _logger = logging.getLogger(__name__)
 N_THREADS = 4
 
 
+class RapidEid(str):
+    #comparable short alias for eid. Github hash style.
+    def __new__(cls, value):
+        obj = super().__new__(cls, str(value))
+        return obj
+        
+    def __eq__(self,value):
+        if super().__eq__(value) : return True
+        return value == self.alias
+
+    def __hash__(self):
+        return super().__hash__()
+    
+    @staticmethod
+    def from_list(value):
+        if isinstance(value, list):
+            return [RapidEid(x) for x in value]
+        else:
+            return RapidEid(value)
+
+    @property
+    def alias(self):
+        return self[:8]
+    
+    
+        
 class One(ConversionMixin):
     """An API for searching and loading data on a local filesystem"""
     _search_terms = (
@@ -292,7 +318,7 @@ class One(ConversionMixin):
                     for index, record in to_assign.iterrows():
                         self._cache[table].loc[index, :] = record[self._cache[table].columns].values
             except KeyError as e:
-                _logger.error(f"Local cache could not be updated : {type(e).__name__} : {e} for cachefield {table} with values \n{self._cache[table]} and new values \n{records}")
+                _logger.debug(f"Local cache could not be updated : {type(e).__name__} : {e} for cachefield {table} with values \n{self._cache[table]} and new values \n{records}")
             updated = datetime.now()
         self._cache['_meta']['modified_time'] = updated
         return updated
@@ -1699,6 +1725,11 @@ class OneAlyx(One):
             If details is True, also returns a list of dictionaries, each entry corresponding to a
             matching session
         """
+        
+        def fix_url(url_input):
+            import re
+            return re.sub(r"^(https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5})(\/)(.*)$",r"\g<1>/admin/\g<3>",url_input)
+        
         query_type = query_type or self.mode
         if query_type != 'remote':
             return super(OneAlyx, self).search(details=details, query_type=query_type, **kwargs)
@@ -1725,8 +1756,17 @@ class OneAlyx(One):
         # Add date field for compatibility with One.search output
         for s in ses:
             s['date'] = str(datetime.fromisoformat(s['start_time']).date())
-        # LazyId only transforms records when indexed
-        eids = util.LazyId(ses)
+            s['id'] = RapidEid(s['id'])
+            s['url'] = fix_url(s['url'])
+        # LazyId only transforms records when indexex : More annoying than usefull when using small amount of sessions
+        eids = list(util.LazyId(ses))
+        if details :
+            try :
+                ses = pd.DataFrame(ses)
+                ses = ses.set_index("id")
+            except ValueError :
+                pass #could not create a dataframe form session details. Returning dict instead
+        
         return (eids, ses) if details else eids
 
     def _download_datasets(self, dsets, **kwargs) -> List[Path]:
