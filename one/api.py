@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from functools import lru_cache, partial
 from inspect import unwrap
 from pathlib import Path, PurePosixPath
+import os
 from typing import Any, Union, Optional, List
 from uuid import UUID
 import time
@@ -28,6 +29,8 @@ from .alf.files import rel_path_parts, get_session_path, get_alf_path, add_uuid_
 from .alf.spec import is_uuid_string
 from one.converters import ConversionMixin
 import one.util as util
+
+import pandas as pd
 
 _logger = logging.getLogger(__name__)
 
@@ -263,28 +266,33 @@ class One(ConversionMixin):
                 raise KeyError(f'Table "{table}" not in cache')
             if isinstance(records, pd.Series):
                 records = pd.DataFrame([records])
-            if not strict:
-                # Deal with case where there are extra columns in the cache
-                extra_columns = set(self._cache[table].columns) - set(records.columns)
-                for col in extra_columns:
-                    n = list(self._cache[table].columns).index(col)
-                    records.insert(n, col, np.nan)
-                # Drop any extra columns in the records that aren't in cache table
-                to_drop = set(records.columns) - set(self._cache[table].columns)
-                records.drop(to_drop, axis=1, inplace=True)
-                records = records.reindex(columns=self._cache[table].columns)
-            assert all(self._cache[table].columns == records.columns)
-            # Update existing rows
-            to_update = records.index.isin(self._cache[table].index)
-            self._cache[table].loc[records.index[to_update], :] = records[to_update]
-            # Assign new rows
-            to_assign = records[~to_update]
-            if isinstance(self._cache[table].index, pd.MultiIndex) and not to_assign.empty:
-                # Concatenate and sort (no other way for non-unique index within MultiIndex)
-                self._cache[table] = pd.concat([self._cache[table], to_assign]).sort_index()
-            else:
-                for index, record in to_assign.iterrows():
-                    self._cache[table].loc[index, :] = record[self._cache[table].columns].values
+            try :
+                if not strict:
+                    # Deal with case where there are extra columns in the cache
+                    extra_columns = set(self._cache[table].columns) - set(records.columns)
+                    for col in extra_columns:
+                        n = list(self._cache[table].columns).index(col)
+                        records.insert(n, col, np.nan)
+                    # Drop any extra columns in the records that aren't in cache table
+                    if len(self._cache[table].columns):
+                        to_drop = set(records.columns) - set(self._cache[table].columns)
+                        records.drop(to_drop, axis=1, inplace=True)
+                    records = records.reindex(columns=self._cache[table].columns)
+                assert all(self._cache[table].columns == records.columns)
+                # Update existing rows
+                to_update = records.index.isin(self._cache[table].index)
+                if not records[to_update].empty :
+                    self._cache[table] = self._cache[table].join(records[to_update])
+                # Assign new rows
+                to_assign = records[~to_update]
+                if (isinstance(self._cache[table].index, pd.MultiIndex) or isinstance(to_assign.index, pd.MultiIndex)) and not to_assign.empty:
+                    # Concatenate and sort (no other way for non-unique index within MultiIndex)
+                    self._cache[table] = pd.concat([self._cache[table], to_assign]).sort_index()
+                else:
+                    for index, record in to_assign.iterrows():
+                        self._cache[table].loc[index, :] = record[self._cache[table].columns].values
+            except KeyError as e:
+                _logger.error(f"Local cache could not be updated : {type(e).__name__} : {e} for cachefield {table} with values \n{self._cache[table]} and new values \n{records}")
             updated = datetime.now()
         self._cache['_meta']['modified_time'] = updated
         return updated
@@ -997,6 +1005,9 @@ class One(ConversionMixin):
         >>> old_spikes = one.load_dataset(eid, 'spikes.times.npy',
         ...                               collection='alf/probe01', revision='2020-08-31')
         """
+        warnings.warn("load_dataset and load_datasets methods are deactivated for now. For now, they cause issues and are not usefull as our installation of alyx in HaissLab is local.")
+        return
+        
         datasets = self.list_datasets(eid, details=True, query_type=query_type or self.mode)
         # If only two parts and wildcards are on, append ext wildcard
         if self.wildcards and isinstance(dataset, str) and len(dataset.split('.')) == 2:
@@ -1064,7 +1075,10 @@ class One(ConversionMixin):
         list
             A list of meta data Bunches. If assert_present is False, missing data will be None
         """
-
+        
+        warnings.warn("load_dataset and load_datasets methods are deactivated for now. For now, they cause issues and are not usefull as our installation of alyx in HaissLab is local.")
+        return
+        
         def _verify_specifiers(specifiers):
             """Ensure specifiers lists matching datasets length"""
             out = []
@@ -1159,6 +1173,9 @@ class One(ConversionMixin):
         np.ndarray, pathlib.Path
             Dataset data (or filepath if download_only) and dataset record if details is True
         """
+        warnings.warn("load_dataset and load_datasets methods are deactivated for now. For now, they cause issues and are not usefull as our installation of alyx in HaissLab is local.")
+        return
+        
         int_idx = self._index_type('datasets') is int
         if isinstance(dset_id, str) and int_idx:
             dset_id = parquet.str2np(dset_id)
@@ -1478,7 +1495,8 @@ class OneAlyx(One):
             super(OneAlyx, self).load_cache(cache_dir)  # Reload cache after download
         except (requests.exceptions.HTTPError, wc.HTTPError) as ex:
             _logger.debug(ex)
-            _logger.error('Failed to load the remote cache file')
+            ##REMOVED THIS WARNING FOR NOW AS I CAN'T FIND IF IT IS ACTUALLY USEFULL TO HAVE A REMOTE CACHE WHEN SETUPING A LOCAL USE OF ALYX LIKE WE DO
+            #_logger.error('Failed to load the remote cache file')
             self.mode = 'remote'
         except (ConnectionError, requests.exceptions.ConnectionError) as ex:
             _logger.debug(ex)
@@ -1551,6 +1569,14 @@ class OneAlyx(One):
     def list_datasets(self, eid=None, filename=None, collection=None, revision=None,
                       details=False, query_type=None) -> Union[np.ndarray, pd.DataFrame]:
         filters = dict(collection=collection, filename=filename, revision=revision)
+        
+        
+        def flatten_pathlist(x):
+            if isinstance(x,(list,tuple)):
+                return [a for i in x for a in flatten(i)]
+            else:
+                return [x]
+        
         if (query_type or self.mode) != 'remote':
             return super().list_datasets(eid, details=details, query_type=query_type, **filters)
         elif not eid:
@@ -1567,7 +1593,21 @@ class OneAlyx(One):
         datasets = util.filter_datasets(
             datasets, assert_unique=False, wildcards=self.wildcards, **filters)
         # Return only the relative path
-        return datasets if details else datasets['rel_path'].sort_values().values.tolist()
+        
+        
+        ## ADD FULL PATH FILE LIST TO THE DATAFRAME (added by timothe)
+        if not "files" in datasets.columns:
+            datasets.loc[:,"files"] = None
+        column_index = datasets.columns.get_loc("files")
+        for index in range(len(datasets)):
+            files = self.alyx.rest("datasets","read",datasets.iloc[index,:].name[1])["file_records"]
+            filepaths = []
+            for file in files :
+                filepaths.append(os.path.normpath(os.path.join(r'\\'+file["data_repository"],file["data_repository_path"].lstrip("/"),file["relative_path"])))
+            datasets.iat[index,column_index] = filepaths
+                
+        #changed return details default from 'rel_path' to 'files'
+        return datasets if details else flatten_pathlist(datasets['files'].sort_values().values.tolist())
 
     @util.refresh
     def pid2eid(self, pid: str, query_type=None) -> (str, str):
@@ -2232,3 +2272,17 @@ class OneAlyx(One):
         out.update({'local_path': self.eid2path(eid),
                     'date': datetime.fromisoformat(out['start_time']).date()})
         return out
+
+###METHODS ADDED BY TIMOTHE TO SIMPLIFY USE OF THE ONE API
+
+    def read_sql(self, query ) : 
+        import sqlalchemy
+        try :
+            params = one.params.get().ALYX_ALCHEMY
+        except AttributeError:
+            raise AttributeError("Your param cache file has not secion for database direct access. Ask timothe to add it, or find a template at : `\\Mountcastle\lab\softwaredepot\Windows\AlyxDatabase\.direct_acces_template`")
+        db_string = rf'{params["db_type"]}+{params["py_db_adapter"]}://{params["user"]}:{params["password"]}@{params["address"]}:{params["port"]}/{params["schema"]}'
+        db = sqlalchemy.create_engine(db_string)
+        return pd.read_sql(query, db)
+        
+        
