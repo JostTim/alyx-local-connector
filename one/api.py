@@ -2315,6 +2315,11 @@ class OneAlyx(One):
 
 ###METHODS ADDED BY TIMOTHE TO SIMPLIFY USE OF THE ONE API
 
+    def get_data_repository_path(self,repository_name):
+        repo_data = self.alyx.rest("data-repository","read",repository_name)
+        repo_path = r"\\" + os.path.join( repo_data["hostname"] , repo_data["globus_path"].lstrip('/') )
+        return os.path.normpath(repo_path)
+
     def read_sql(self, query ) : 
         import sqlalchemy
         try :
