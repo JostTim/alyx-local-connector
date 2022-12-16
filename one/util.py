@@ -63,10 +63,16 @@ def ses2records(ses: dict, int_id=False):
         else:
             rec['id'] = d['id']
             rec['eid'] = session.name
-        file_path = urllib.parse.urlsplit(d['data_url'], allow_fragments=False).path.strip('/')
-        file_path = alfio.remove_uuid_file(file_path, dry=True).as_posix()
-        rec['session_path'] = get_session_path(file_path).as_posix()
-        rec['rel_path'] = file_path[len(rec['session_path']):].strip('/')
+        try :
+            file_path = urllib.parse.urlsplit(d['data_url'], allow_fragments=False).path.strip('/')
+            file_path = alfio.remove_uuid_file(file_path, dry=True).as_posix()
+            rec['session_path'] = get_session_path(file_path).as_posix()
+            rec['rel_path'] = file_path[len(rec['session_path']):].strip('/')
+        except TypeError: #no data url is present
+            file_path = ''
+            rec['session_path'] = file_path
+            rec['rel_path'] = file_path
+        
         rec['default_revision'] = d['default_revision'] == 'True'
         return rec
 

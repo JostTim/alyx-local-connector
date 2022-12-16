@@ -37,33 +37,16 @@ _logger = logging.getLogger(__name__)
 """int: The number of download threads"""
 N_THREADS = 4
 
-
-class RapidEid(str):
-    #comparable short alias for eid. Github hash style.
-    def __new__(cls, value):
-        obj = super().__new__(cls, str(value))
-        return obj
-        
-    def __eq__(self,value):
-        if super().__eq__(value) : return True
-        return value == self.alias
-
-    def __hash__(self):
-        return super().__hash__()
-    
-    @staticmethod
-    def from_list(value):
-        if isinstance(value, list):
-            return [RapidEid(x) for x in value]
-        else:
-            return RapidEid(value)
-
-    @property
-    def alias(self):
-        return self[:8]
+def singleton(cls):
+    instances = {}
+    def getinstance(*args, **kwargs):
+        if cls not in instances or kwargs.get("regen",False) is True:
+            kwargs.pop("regen",None)
+            instances[cls] = cls(*args, **kwargs)
+        return instances[cls]
+    return getinstance
     
     
-        
 class One(ConversionMixin):
     """An API for searching and loading data on a local filesystem"""
     _search_terms = (
@@ -1360,6 +1343,9 @@ class One(ConversionMixin):
         return One(cache_dir, mode='local')
 
 
+
+
+
 @lru_cache(maxsize=1)
 def ONE(*, mode='auto', wildcards=True, **kwargs):
     """ONE API factory
@@ -1410,7 +1396,7 @@ def ONE(*, mode='auto', wildcards=True, **kwargs):
         # Cache dir corresponds to a Alyx repo, call OneAlyx
         return OneAlyx(mode=mode, wildcards=wildcards, **kwargs)
 
-
+@singleton
 class OneAlyx(One):
     """An API for searching and loading data through the Alyx database"""
     def __init__(self, username=None, password=None, base_url=None, cache_dir=None,
@@ -1448,7 +1434,7 @@ class OneAlyx(One):
                                          **kwargs)
         self._search_endpoint = 'sessions'
         # get parameters override if inputs provided
-        super(OneAlyx, self).__init__(mode=mode, wildcards=wildcards, cache_dir=cache_dir)
+        super().__init__(mode=mode, wildcards=wildcards, cache_dir=cache_dir)
 
     def __repr__(self):
         return f'One ({"off" if self.offline else "on"}line, {self.alyx.base_url})'
@@ -1478,7 +1464,7 @@ class OneAlyx(One):
         tag = tag or current_tags[0]  # For refreshes take the current tag as default
         different_tag = any(x != tag for x in current_tags)
         if not clobber or different_tag:
-            super(OneAlyx, self).load_cache(cache_dir)  # Load any present cache
+            super().load_cache(cache_dir)  # Load any present cache
             cache_meta = self._cache.get('_meta', {})  # TODO Make walrus when we drop 3.7 support
             expired = self._cache and cache_meta['expired']
             if not expired or self.mode in ('local', 'remote'):
@@ -1518,7 +1504,7 @@ class OneAlyx(One):
             _logger.info('Downloading remote caches...')
             files = self.alyx.download_cache_tables(cache_info.get('location'), cache_dir)
             assert any(files)
-            super(OneAlyx, self).load_cache(cache_dir)  # Reload cache after download
+            super().load_cache(cache_dir)  # Reload cache after download
         except (requests.exceptions.HTTPError, wc.HTTPError) as ex:
             _logger.debug(ex)
             ##REMOVED THIS WARNING FOR NOW AS I CAN'T FIND IF IT IS ACTUALLY USEFULL TO HAVE A REMOTE CACHE WHEN SETUPING A LOCAL USE OF ALYX LIKE WE DO
@@ -1596,12 +1582,13 @@ class OneAlyx(One):
                       details=False, query_type=None) -> Union[np.ndarray, pd.DataFrame]:
         filters = dict(collection=collection, filename=filename, revision=revision)
         
+        import natsort
         
         def flatten_pathlist(x):
             if isinstance(x,(list,tuple)):
-                return [a for i in x for a in flatten(i)]
+                return natsort.natsorted([a for i in x for a in flatten(i)])
             else:
-                return [x]
+                return natsort.natsorted([x])
         
         if (query_type or self.mode) != 'remote':
             return super().list_datasets(eid, details=details, query_type=query_type, **filters)
@@ -1611,6 +1598,7 @@ class OneAlyx(One):
         eid = self.to_eid(eid)  # Ensure we have a UUID str list
         if not eid:
             return self._cache['datasets'].iloc[0:0] if details else []  # Return empty
+        
         session, datasets = util.ses2records(self.alyx.rest('sessions', 'read', id=eid))
         # Add to cache tables
         self._update_cache_from_records(sessions=session, datasets=datasets.copy())
@@ -1628,8 +1616,10 @@ class OneAlyx(One):
         for index in range(len(datasets)):
             files = self.alyx.rest("datasets","read",datasets.iloc[index,:].name[1])["file_records"]
             filepaths = []
+            repo = self.alyx.rest("data-repository","read",files[0]["data_repository"])
             for file in files :
-                filepaths.append(os.path.normpath(os.path.join(r'\\'+file["data_repository"],file["data_repository_path"].lstrip("/"),file["relative_path"])))
+                
+                filepaths.append(os.path.normpath(os.path.join(r'\\'+repo["hostname"],file["data_repository_path"].lstrip("/"),file["relative_path"])))
             datasets.iat[index,column_index] = filepaths
                 
         #changed return details default from 'rel_path' to 'files'
@@ -1728,11 +1718,12 @@ class OneAlyx(One):
         
         def fix_url(url_input):
             import re
-            return re.sub(r"^(https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5})(\/)(.*)$",r"\g<1>/admin/\g<3>",url_input)
-        
+            return re.sub(r"^(https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5})(\/)(session)(s)(.*)$",r"\g<1>/admin/actions/\g<3>\g<5>",url_input)
+
+            
         query_type = query_type or self.mode
         if query_type != 'remote':
-            return super(OneAlyx, self).search(details=details, query_type=query_type, **kwargs)
+            return super().search(details=details, query_type=query_type, **kwargs)
 
         # loop over input arguments and build the url
         search_terms = self.search_terms(query_type=query_type)
@@ -1756,7 +1747,7 @@ class OneAlyx(One):
         # Add date field for compatibility with One.search output
         for s in ses:
             s['date'] = str(datetime.fromisoformat(s['start_time']).date())
-            s['id'] = RapidEid(s['id'])
+            #s['id'] = RapidEid(s['id'])
             s['url'] = fix_url(s['url'])
         # LazyId only transforms records when indexex : More annoying than usefull when using small amount of sessions
         eids = list(util.LazyId(ses))
@@ -2054,7 +2045,7 @@ class OneAlyx(One):
 
     @util.refresh
     @util.parse_id
-    def eid2path(self, eid, query_type=None) -> util.Listable(Path):
+    def eid2path(self, eid, data_repository = None , query_type=None) -> util.Listable(Path):
         """
         From an experiment ID gets the local session path
 
@@ -2088,12 +2079,17 @@ class OneAlyx(One):
         if len(ses) == 0:
             return None
         else:
-            return Path(self.cache_dir).joinpath(
-                ses[0]['lab'], 'Subjects', ses[0]['subject'], ses[0]['start_time'][:10],
+            if data_repository is None :
+                data_repository = ''
+            else :
+                data_repository = self.get_data_repository_path(data_repository)
+            
+            return os.path.join(data_repository, ses[0]['subject'], ses[0]['start_time'][:10],
                 str(ses[0]['number']).zfill(3))
 
     @util.refresh
     def path2eid(self, path_obj: Union[str, Path], query_type=None) -> util.Listable(Path):
+        import re
         """
         From a local path, gets the experiment ID
 
@@ -2118,6 +2114,11 @@ class OneAlyx(One):
                 eid_list.append(unwrapped(self, p))
             return eid_list
         # else ensure the path ends with mouse,date, number
+        try:
+            path_obj = re.findall( r"(\w+(?:\\|\/)\d{4}-\d{2}-\d{2}(?:\\|\/)\d+)" , path_obj )[0]
+        except IndexError:#could not match anything
+            pass
+            
         path_obj = Path(path_obj)
 
         # try the cached info to possibly avoid hitting database
@@ -2161,7 +2162,7 @@ class OneAlyx(One):
         """
         query_type = query_type or self.mode
         if query_type != 'remote':
-            return super(OneAlyx, self).path2url(filepath)
+            return super().path2url(filepath)
         eid = self.path2eid(filepath)
         try:
             dataset, = self.alyx.rest('datasets', 'list', session=eid, name=Path(filepath).name)
@@ -2330,4 +2331,81 @@ class OneAlyx(One):
         db = sqlalchemy.create_engine(db_string)
         return pd.read_sql(query, db)
         
+    
+    def create_session(self,data_dict):
+        import re
+        data_dict = data_dict.copy()
+        data_dict["number"] = str(int(data_dict["number"]))
+        try :#a session have been found with same 3 parameters, don't allow to process to registering.
+            _searched_session = self.search( subject = data_dict["subject"], number = data_dict["number"], date_range = data_dict["start_time"][:10], users = data_dict["users"] ,details = True)
+            url = re.sub(r"\/sessions", r"/actions/session" , _searched_session[1]["url"].item() )
+            raise ValueError(f"This session path is already registered ! See here : {url}\n You probably need to change the number of the session for this animald/date combo")
+        except KeyError :#no session have benn found, all is well, can proceed
+            pass
         
+        self.alyx.rest("sessions","create",data = data_dict)
+        
+    def default_session_data(self):
+        return {"lab" : 'HaissLab',
+                'task_protocol': ''
+                }
+    
+    @staticmethod
+    def explorer(path):
+        import subprocess
+        if not os.path.exists(path):
+            raise IOError(f"Path {path} does not exist")
+        if os.path.isfile(path) :
+            path = os.path.dirname(path)
+            
+        pre_cmd = f"explorer.exe {path}"
+        subprocess.call(pre_cmd)
+        return 
+        #this part is to open in atab instead of window. Buggy for now.
+        if path[:2] == r'\\':
+            pre_cmd = f"pushd {path}; "
+            #path = os.path.join(*[item for item in selected_folder.split(os.sep) if item != ''][1:]) #this removes the first object of the path
+        else :
+            pre_cmd = 'cd "{pateh}; "'
+        subprocess.call(pre_cmd + r'start .')
+        #subprocess.Popen(r'explorer '+f'{os.path.dirname(path)},select,{os.path.basename(path)}')
+
+    def collection_path(self,eid,collections):
+        return os.path.join(self.default_repo_path, self.eid2path(eid), collections)
+        
+    #def set_current_project(self,project_name):#doing mostly the same thing for now. This would imply ther is a single repository for one full project. That may not be always the case.
+    #    self.set_current_repo(project_name)
+    
+    def set_current_repo(self,repo_name):
+        self.default_repo_path = self.get_data_repository_path(repo_name)
+    
+    def get_parts_from_path(self,input_path):
+        import re
+        subject, date, number = re.findall( r"(\w+)(?:\\|\/)(\d{4}-\d{2}-\d{2})(?:\\|\/)(\d+)" , input_path)[0]
+        return {"subject":subject, "date":date, "number" : number}
+    
+    # def get_s_from_path(self,input_path):
+    #     
+        
+    def get_json_params(self,eid):
+        return self.alyx.rest("sessions","read",eid)["json"]
+        
+        
+        
+    #     import json
+        
+    #     def _recurse_find_alyx_repo_json(_input_path):
+    #         found_file = None
+    #         for item in os.listdir(_input_path):
+    #             if item == "__alyx_repository__.json" :
+    #                 found_file = os.path.join(_input_path,item)
+    #         if found_file is None :
+    #             if os.path.dirname(_input_path) == _input_path :
+    #                 raise IOError("input_path is not inside an alyx data-repository containing an '__alyx_repository__.json' file")
+    #             return _recurse_find_alyx_repo_json(os.path.dirname(_input_path))
+    #         return found_file
+        
+    #     json_path = _recurse_find_alyx_repo_json(input_path)
+    #     repo_name = json.load( open(json_path,"r") )["name"]
+        
+    

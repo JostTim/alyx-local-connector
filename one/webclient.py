@@ -526,6 +526,12 @@ class AlyxClient():
         """pathlib.Path: The location of the downloaded file cache"""
         return Path(self._par.CACHE_DIR)
 
+    def delete_cache(self):
+        """Delete all cached files in the .rest directory of your ONE installation (usually located in ONE inside downloads)"""
+        cache_dir = self.cache_dir.joinpath('.rest')
+        for item in os.listdir(cache_dir):
+            os.remove(os.path.join(cache_dir,item))
+
     @property
     def is_logged_in(self):
         """bool: Check if user logged into Alyx database; True if user is authenticated"""
