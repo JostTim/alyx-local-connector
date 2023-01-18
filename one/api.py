@@ -1745,10 +1745,13 @@ class OneAlyx(One):
         # Make GET request
         ses = self.alyx.rest(self._search_endpoint, 'list', **params)
         # Add date field for compatibility with One.search output
-        for s in ses:
+        for index, s  in enumerate(ses):
             s['date'] = str(datetime.fromisoformat(s['start_time']).date())
-            #s['id'] = RapidEid(s['id'])
+            s['json'] = self.get_json_params(s["id"])
+            s['short_path'] = self.eid2path(s["id"])
+            s['path'] = os.path.join( self.default_repo_path, s['short_path'])
             s['url'] = fix_url(s['url'])
+            ses[index] = s
         # LazyId only transforms records when indexex : More annoying than usefull when using small amount of sessions
         eids = list(util.LazyId(ses))
         if details :
