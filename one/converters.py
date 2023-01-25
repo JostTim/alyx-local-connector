@@ -588,6 +588,13 @@ class ConversionMixin:
         return re.compile(r'\d{4}(-\d{2}){2}_(\d{1}|\d{3})_\w+').match(ref) is not None
 
     @staticmethod
+    def path2refpath(path : str) -> str :
+        
+        ALYX_PATH_EID = r"\w+(?:\\|\/)\d{4}\-\d{2}\-\d{2}(?:\\|\/)\d{3}"
+        return re.findall(ALYX_PATH_EID,path)[0]
+        
+
+    @staticmethod
     @parse_values
     def ref2dict(ref: Union[str, Mapping, Iter]) -> Union[Bunch, List]:
         """
