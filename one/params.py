@@ -26,11 +26,12 @@ CACHE_DIR_DEFAULT = str(Path.home() / "Downloads" / "ONE")
 
 def default():
     """Default Web client parameters"""
-    par = {"ALYX_URL": "https://openalyx.internationalbrainlab.org",
-           "ALYX_LOGIN": "intbrainlab",
-           "HTTP_DATA_SERVER": "https://ibl.flatironinstitute.org/public",
+    par = {"ALYX_URL": "http://157.99.138.172:8080",
+           "ALYX_LOGIN": "guest",
+           "HTTP_DATA_SERVER": "http://157.99.138.147:5005/lab/data/ONE/",
            "HTTP_DATA_SERVER_LOGIN": None,
-           "HTTP_DATA_SERVER_PWD": None}
+           "HTTP_DATA_SERVER_PWD": None,
+           "LOCAL_ROOT" : None}
     return iopar.from_dict(par)
 
 
@@ -181,6 +182,11 @@ def setup(client=None, silent=False, make_default=None, username=None):
 
     # Update and save parameters
     Path(cache_dir).mkdir(exist_ok=True, parents=True)
+    rest_dir = Path(cache_dir).joinpath(".rest")
+    rest_dir.mkdir(exist_ok=True, parents=True)
+    from iblutil.io.params import set_hidden
+    set_hidden(rest_dir, True)
+    
     cache_map.CLIENT_MAP[client_key] = str(cache_dir)
     if make_default or 'DEFAULT' not in cache_map.as_dict():
         cache_map = cache_map.set('DEFAULT', client_key)
@@ -190,6 +196,7 @@ def setup(client=None, silent=False, make_default=None, username=None):
 
     if not silent:
         print('ONE Parameter files location: ' + iopar.getfile(_PAR_ID_STR))
+ 
     return cache_map
 
 
@@ -278,6 +285,8 @@ def get_cache_dir(client=None) -> Path:
     client = _key_from_url(client) if client else cache_map.DEFAULT
     cache_dir = Path(cache_map.CLIENT_MAP[client] if cache_map else CACHE_DIR_DEFAULT)
     cache_dir.mkdir(exist_ok=True, parents=True)
+    #cache_dir.joinpath(".rest").mkdir(exist_ok=True, parents=True)
+    
     return cache_dir
 
 
