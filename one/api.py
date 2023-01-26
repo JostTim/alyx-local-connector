@@ -1435,7 +1435,34 @@ class OneAlyx(One):
         self._search_endpoint = 'sessions'
         # get parameters override if inputs provided
         super().__init__(mode=mode, wildcards=wildcards, cache_dir=cache_dir)
+        self.data_access_mode = "local"
 
+    def data_access_root(self, session_id = None):
+        if self.data_access_mode == "local" :
+            return os.path.normpath(one.params.get().LOCAL_ROOT)
+        if self.data_access_mode == "remote" :
+            if session_id is None :
+                try : 
+                    return self.default_repo_path
+                except AttributeError :
+                    raise ValueError("Must 'set_current_remote_repository' if using data_access_root without specifying the session id")
+            try : # TODO : change this with a session_repository field in the detabase, to avoid such mess.
+                first_dataset_id = self.alyx.rest("sessions","read",id = session_id)["data_dataset_session_related"][0]['id']
+                first_file_repository = self.alyx.rest("files","list",dataset = [first_dataset_id],limit = 1)[0]["data_repository"]
+            except IndexError:
+                raise IOError(f"Session {session_id} has not registered file yet. Cannot get the session root")
+            return self.get_data_repository_path(first_file_repository)
+        else :
+            raise NotImplementedError
+            
+    def set_data_access_mode(self, mode ):
+        available_modes = ["local","remote"]# TODO : add ability to go auto mode later. (if possible, still have to think about it)
+        if mode in available_modes :
+            self.data_access_mode = mode
+            self.alyx.delete_cache() #delete rest cache in case there is local / remote path stored inside
+        else :
+            raise ValueError(f"data_access_mode must be one of : {available_modes}")
+        
     def __repr__(self):
         return f'One ({"off" if self.offline else "on"}line, {self.alyx.base_url})'
 
@@ -1618,8 +1645,7 @@ class OneAlyx(One):
             filepaths = []
             repo = self.alyx.rest("data-repository","read",files[0]["data_repository"])
             for file in files :
-                
-                filepaths.append(os.path.normpath(os.path.join(r'\\'+repo["hostname"],file["data_repository_path"].lstrip("/"),file["relative_path"])))
+                filepaths.append(os.path.normpath(os.path.join(self.data_access_root(eid),file["relative_path"])))
             datasets.iat[index,column_index] = filepaths
                 
         #changed return details default from 'rel_path' to 'files'
@@ -1749,7 +1775,7 @@ class OneAlyx(One):
             s['date'] = str(datetime.fromisoformat(s['start_time']).date())
             s['json'] = self.get_json_params(s["id"])
             s['short_path'] = self.eid2path(s["id"])
-            s['path'] = os.path.join( self.default_repo_path, s['short_path'])
+            s['path'] = os.path.join( self.data_access_root(s["id"]), s['short_path'])
             s['url'] = fix_url(s['url'])
             ses[index] = s
         # LazyId only transforms records when indexex : More annoying than usefull when using small amount of sessions
@@ -2379,7 +2405,7 @@ class OneAlyx(One):
     #def set_current_project(self,project_name):#doing mostly the same thing for now. This would imply ther is a single repository for one full project. That may not be always the case.
     #    self.set_current_repo(project_name)
     
-    def set_current_repo(self,repo_name):
+    def set_current_remote_repository(self,repo_name):
         self.default_repo_path = self.get_data_repository_path(repo_name)
     
     def get_parts_from_path(self,input_path):
