@@ -1775,7 +1775,10 @@ class OneAlyx(One):
             s['date'] = str(datetime.fromisoformat(s['start_time']).date())
             s['json'] = self.get_json_params(s["id"])
             s['short_path'] = self.eid2path(s["id"])
-            s['path'] = os.path.join( self.data_access_root(s["id"]), s['short_path'])
+            try :
+                s['path'] = os.path.join( self.data_access_root(s["id"]), s['short_path'])
+            except OSError:
+                warnings.warn(f"Session {s['id']} has not registered file yet. Cannot get the session root into 'path' field. Skipping")
             s['url'] = fix_url(s['url'])
             ses[index] = s
         # LazyId only transforms records when indexex : More annoying than usefull when using small amount of sessions
