@@ -1437,10 +1437,17 @@ class OneAlyx(One):
         super().__init__(mode=mode, wildcards=wildcards, cache_dir=cache_dir)
         self.data_access_mode = "local"
 
-    def data_access_root(self, session_id = None):
-        if self.data_access_mode == "local" :
+    def data_access_root(self, session_id = None, as_mode = None):
+        if as_mode is None :
+            data_access_mode = self.data_access_mode
+        else :
+            if not as_mode in ["local","remote"] :
+                raise ValueError("data_access_mode must be one of : 'local','remote'")
+            data_access_mode = as_mode 
+            
+        if data_access_mode == "local" :
             return os.path.normpath(one.params.get().LOCAL_ROOT)
-        if self.data_access_mode == "remote" :
+        if data_access_mode == "remote" :
             if session_id is None :
                 try : 
                     return self.default_repo_path
@@ -1604,6 +1611,7 @@ class OneAlyx(One):
         print(out['description'])
         return out
 
+    #### LIST DATASETS
     @util.refresh
     def list_datasets(self, eid=None, filename=None, collection=None, revision=None,
                       details=False, query_type=None) -> Union[np.ndarray, pd.DataFrame]:
@@ -1681,6 +1689,7 @@ class OneAlyx(One):
         rec = self.alyx.rest('insertions', 'read', id=str(pid))
         return rec['session'], rec['name']
 
+    #### SEARCH
     def search(self, details=False, query_type=None, **kwargs):
         """
         Searches sessions matching the given criteria and returns a list of matching eids
@@ -1787,7 +1796,8 @@ class OneAlyx(One):
             try :
                 ses = pd.DataFrame(ses)
                 ses = ses.set_index("id")
-            except ValueError :
+            except (ValueError, KeyError) :
+                warnings.warn("search result contained no entry")
                 pass #could not create a dataframe form session details. Returning dict instead
         
         return (eids, ses) if details else eids
@@ -2367,7 +2377,7 @@ class OneAlyx(One):
     def create_session(self,data_dict):
         import re
         data_dict = data_dict.copy()
-        data_dict["number"] = str(int(data_dict["number"]))
+        data_dict["number"] = str(int(data_dict["number"]))#remove leading zeros if any
         try :#a session have been found with same 3 parameters, don't allow to process to registering.
             _searched_session = self.search( subject = data_dict["subject"], number = data_dict["number"], date_range = data_dict["start_time"][:10], users = data_dict["users"] ,details = True)
             url = re.sub(r"\/sessions", r"/actions/session" , _searched_session[1]["url"].item() )
