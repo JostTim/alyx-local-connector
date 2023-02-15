@@ -8,6 +8,8 @@ from iblutil.util import flatten
 
 """dict: The ALF part names and their definitions."""
 SPEC_DESCRIPTION = {
+    'root' : 'The root path, extracted either from the repository registered in the Alyx database,'
+             ' or the local path provided by the user.',
     'lab': 'The name of the lab where the data were collected (optional).',
     'Subjects': 'An optional directory to indicate that the experiment data are divided by '
                 'subject.  If organizing by lab, this directory is required.',
@@ -90,6 +92,9 @@ SPEC_DESCRIPTION = {
 # The following are the specifications and patterns for ALFs #
 # ========================================================== #
 
+
+ROOT_SPEC = '{root}'
+
 SESSION_SPEC = '({lab}/Subjects/)?{subject}/{date}/{number}'
 """str: The session specification pattern"""
 
@@ -103,9 +108,16 @@ REL_PATH_SPEC = f'{COLLECTION_SPEC}{FILE_SPEC}'
 """str: The collection, revision and filename specification pattern"""
 
 FULL_SPEC = f'{SESSION_SPEC}/{REL_PATH_SPEC}'
-"""str: The full ALF path specification pattern"""
+"""str: The full ALF path specification pattern without a root path (stopping up to subject or lab)"""
+
+FULL_ABSOLUTE_SPEC = f'{ROOT_SPEC}/{SESSION_SPEC}/{REL_PATH_SPEC}'
+"""str: The full ALF path specification pattern with a full root"""
+
+SEPARATOR = r"(?:/|\\)"
+"""Just an helper to match either unix or windows like path strings more easily"""
 
 _DEFAULT = (
+    ('root', r'^[^<>\"|?*]+?'), #the root upstream of the lab/subject relative path
     ('lab', r'\w+'),
     ('subject', r'[\w-]+'),
     ('date', r'\d{4}-\d{2}-\d{2}'),
@@ -242,6 +254,8 @@ def regex(spec: str = FULL_SPEC, **kwargs) -> re.Pattern:
 
     >>> pattern = regex(object='trials')
     """
+    spec = spec.replace('/',SEPARATOR)
+    #change pattern to a pattern that will match all separator types (unix or windows types)
     fields = dict(_DEFAULT)
     if not fields.keys() >= kwargs.keys():
         unknown = next(k for k in kwargs.keys() if k not in fields.keys())
@@ -251,7 +265,7 @@ def regex(spec: str = FULL_SPEC, **kwargs) -> re.Pattern:
     return re.compile(spec_str)
 
 
-def is_valid(filename):
+def is_valid(filename, spec_pattern = FILE_SPEC):
     """
     Returns a True for a given file name if it is an ALF file, otherwise returns False
 
@@ -276,7 +290,10 @@ def is_valid(filename):
     >>> is_valid('channels._phy_ids.csv')  # WARNING: attribute level namespaces are deprecated
     True
     """
-    return regex(FILE_SPEC).match(filename) is not None
+    #import os
+    #filename = os.path.normpath(filename)
+    #filename = filename.replace('\\','/')
+    return regex(spec_pattern).match(filename) is not None
 
 
 def is_session_path(path_object):
@@ -390,3 +407,57 @@ def to_alf(object, attribute, extension, namespace=None, timescale=None, extra=N
              *extra,
              extension)
     return '.'.join(parts)
+
+
+def to_full_path(subject = None,
+                date = None,
+                number = None,
+
+                root = "",
+
+                object = None,
+                attribute = None,
+                extension = None,
+
+                extra = [""],
+                collection = [""],
+
+                timescale = None,
+                namespace = None,
+                revision = "",
+
+                session_details = None,
+                ):
+    import os
+    
+    if session_details is not None :
+        subject = session_details.subject
+        date = session_details.date
+        number = str(session_details.number)
+    
+    number = str(int(number)).zfill(3)
+    
+    if not isinstance(collection, (tuple,list)):
+        collection = [collection]
+    collection = os.path.join(*collection)
+
+    if not isinstance(extra, (tuple,list)):
+        extra = [extra]
+    extra = '.'.join(extra)
+    if extra == "" :
+        extra = None
+    
+    if revision != "" :
+        revision = f"#{revision}#"
+    
+    attribute = _dromedary(attribute)#make sure there is no underscores
+    object = _dromedary(object)#make sure there is no underscores
+
+    alf_filename = to_alf(object = object,
+                        attribute = attribute,
+                        extension = extension,
+                        namespace = namespace,
+                        timescale = timescale,
+                        extra = extra)
+    
+    return os.path.join(root,subject,date,number,collection,revision,alf_filename)

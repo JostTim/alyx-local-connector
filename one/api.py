@@ -1450,14 +1450,15 @@ class OneAlyx(One):
         if data_access_mode == "remote" :
             if session_id is None :
                 try : 
-                    return self.default_repo_path
+                    return self.current_remote_repository_path
                 except AttributeError :
                     raise ValueError("Must 'set_current_remote_repository' if using data_access_root without specifying the session id")
             try : # TODO : change this with a session_repository field in the detabase, to avoid such mess.
                 first_dataset_id = self.alyx.rest("sessions","read",id = session_id)["data_dataset_session_related"][0]['id']
                 first_file_repository = self.alyx.rest("files","list",dataset = [first_dataset_id],limit = 1)[0]["data_repository"]
             except IndexError:
-                raise IOError(f"Session {session_id} has not registered file yet. Cannot get the session root")
+                _logger.warning(f"Session {session_id} has not registered file yet. Cannot get the session root")
+                return self.current_remote_repository_path 
             return self.get_data_repository_path(first_file_repository)
         else :
             raise NotImplementedError
@@ -1783,9 +1784,13 @@ class OneAlyx(One):
         for index, s  in enumerate(ses):
             s['date'] = str(datetime.fromisoformat(s['start_time']).date())
             s['json'] = self.get_json_params(s["id"])
-            s['short_path'] = self.eid2path(s["id"])
+            s['extended_qc'] = self.get_extended_qc(s["id"])
+            s['rel_path'] = self.eid2path(s["id"])  # TODO should be renamed rel_path & check compatibility eveywhere
+            alias_name = s['rel_path'].replace("-","_").replace("\\","_")
+            s['alias_name'] = alias_name
+            s['short_path'] = s['rel_path']
             try :
-                s['path'] = os.path.join( self.data_access_root(s["id"]), s['short_path'])
+                s['path'] = os.path.join( self.data_access_root(s["id"]), s['rel_path'])
             except OSError:
                 warnings.warn(f"Session {s['id']} has not registered file yet. Cannot get the session root into 'path' field. Skipping")
             s['url'] = fix_url(s['url'])
@@ -2363,7 +2368,7 @@ class OneAlyx(One):
         repo_path = r"\\" + os.path.join( repo_data["hostname"] , repo_data["globus_path"].lstrip('/') )
         return os.path.normpath(repo_path)
 
-    def read_sql(self, query ) : 
+    def read_sql(self, query ):
         import sqlalchemy
         try :
             params = one.params.get().ALYX_ALCHEMY
@@ -2413,13 +2418,13 @@ class OneAlyx(One):
         #subprocess.Popen(r'explorer '+f'{os.path.dirname(path)},select,{os.path.basename(path)}')
 
     def collection_path(self,eid,collections):
-        return os.path.join(self.default_repo_path, self.eid2path(eid), collections)
+        return os.path.join(self.current_remote_repository_path, self.eid2path(eid), collections)
         
     #def set_current_project(self,project_name):#doing mostly the same thing for now. This would imply ther is a single repository for one full project. That may not be always the case.
     #    self.set_current_repo(project_name)
     
     def set_current_remote_repository(self,repo_name):
-        self.default_repo_path = self.get_data_repository_path(repo_name)
+        self.current_remote_repository_path = self.get_data_repository_path(repo_name)
     
     def get_parts_from_path(self,input_path):
         import re
@@ -2431,8 +2436,45 @@ class OneAlyx(One):
         
     def get_json_params(self,eid):
         return self.alyx.rest("sessions","read",eid)["json"]
+
+    def get_extended_qc(self,eid):
+        return self.alyx.rest("sessions","read",eid)["extended_qc"]        
         
+    def display_session_info(self,session_details):
+        from IPython.display import Markdown, display
+        session_data_link = f"[Data pathes](file:{os.path.normpath(session_details.path)}) pointing in {self.data_access_mode} mode."
+        metadatas_link = f"[Metadatas]({session_details.url}) obtained in {self.mode} mode."
+        uuid = f"(uuid is '{session_details.name}')"
+        display(Markdown(f"Session {session_details.rel_path}. {session_data_link} {metadatas_link} {uuid}"))
         
+    def update_session_info(self, session_details, json = {}, extended_qc = {}, **kwargs):
+  
+        data = {}
+        if len(json) :
+            base_json = session_details.json
+            if base_json is None :
+                base_json = {}
+            base_json.update(json)
+            data["json"] = base_json
+            
+        if len(extended_qc) :
+            base_ext_qc = session_details.extended_qc
+            if base_ext_qc is None :
+                base_ext_qc = {}
+            base_ext_qc.update(extended_qc)
+            data["extended_qc"] = base_ext_qc
+        
+        data.update(kwargs)
+        
+ 
+        _logger.info(f"Updating session {session_details.rel_path}")
+        ans = input(data)
+        if ans != "OK":
+            _logger.info("Aborting")
+            return
+        _logger.info("Applying changes")
+        self.alyx.rest("sessions","partial_update", id = session_details.name,  data = data )
+        self.alyx.delete_cache()
         
     #     import json
         
