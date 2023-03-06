@@ -1615,7 +1615,7 @@ class OneAlyx(One):
     #### LIST DATASETS
     @util.refresh
     def list_datasets(self, eid=None, filename=None, collection=None, revision=None,
-                      details=False, query_type=None) -> Union[np.ndarray, pd.DataFrame]:
+                      details=False, query_type=None, as_mode = None) -> Union[np.ndarray, pd.DataFrame]:
         filters = dict(collection=collection, filename=filename, revision=revision)
         
         import natsort
@@ -1654,7 +1654,7 @@ class OneAlyx(One):
             filepaths = []
             repo = self.alyx.rest("data-repository","read",files[0]["data_repository"])
             for file in files :
-                filepaths.append(os.path.normpath(os.path.join(self.data_access_root(eid),file["relative_path"])))
+                filepaths.append(os.path.normpath(os.path.join(self.data_access_root(eid,as_mode = as_mode),file["relative_path"])))
             datasets.iat[index,column_index] = filepaths
                 
         #changed return details default from 'rel_path' to 'files'
