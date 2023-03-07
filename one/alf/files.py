@@ -24,7 +24,7 @@ from pathlib import Path
 import logging
 
 from . import spec
-from .spec import SESSION_SPEC, COLLECTION_SPEC, FILE_SPEC, REL_PATH_SPEC
+from .spec import SESSION_SPEC, COLLECTION_SPEC, FILE_SPEC, REL_PATH_SPEC, FULL_ABSOLUTE_SPEC
 
 _logger = logging.getLogger(__name__)
 
@@ -53,6 +53,9 @@ def rel_path_parts(rel_path, as_dict=False, assert_valid=True):
     """
     return _path_parts(rel_path, REL_PATH_SPEC, True, as_dict, assert_valid)
 
+
+def absolute_session_path_parts(session_path, as_dict=False, assert_valid=True):
+    return _path_parts(session_path, FULL_ABSOLUTE_SPEC, False, as_dict, assert_valid)
 
 def session_path_parts(session_path, as_dict=False, assert_valid=True):
     """Parse a session path into the relevant parts.

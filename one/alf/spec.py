@@ -412,7 +412,7 @@ def to_alf(object, attribute, extension, namespace=None, timescale=None, extra=N
 def to_full_path(subject = None,
                 date = None,
                 number = None,
-
+                
                 root = "",
 
                 object = None,
@@ -427,6 +427,9 @@ def to_full_path(subject = None,
                 revision = "",
 
                 session_details = None,
+                #UNUSED PARTS
+                lab = None,
+                dromedarize = True
                 ):
     import os
     
@@ -439,19 +442,29 @@ def to_full_path(subject = None,
     
     if not isinstance(collection, (tuple,list)):
         collection = [collection]
-    collection = os.path.join(*collection)
+    try :         
+        collection = os.path.join(*collection)
+    except TypeError : #collection is [None]
+        collection = ""
 
     if not isinstance(extra, (tuple,list)):
         extra = [extra]
-    extra = '.'.join(extra)
+    try : 
+        extra = '.'.join(extra)
+    except TypeError : #extra is [None]
+        extra = None
+        
     if extra == "" :
         extra = None
     
-    if revision != "" :
+    if revision != "" and revision is not None:
         revision = f"#{revision}#"
+    else :
+        revision = ""
     
-    attribute = _dromedary(attribute)#make sure there is no underscores
-    object = _dromedary(object)#make sure there is no underscores
+    if dromedarize :
+        attribute = _dromedary(attribute)#make sure there is no underscores, replace them by Caps
+        object = _dromedary(object)#make sure there is no underscores, replace them by Caps
 
     alf_filename = to_alf(object = object,
                         attribute = attribute,
