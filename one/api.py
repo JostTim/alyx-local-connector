@@ -1342,10 +1342,6 @@ class One(ConversionMixin):
         make_parquet_db(cache_dir, **kwargs)
         return One(cache_dir, mode='local')
 
-
-
-
-
 @lru_cache(maxsize=1)
 def ONE(*, mode='auto', wildcards=True, **kwargs):
     """ONE API factory
@@ -1805,7 +1801,7 @@ class OneAlyx(One):
                 warnings.warn("search result contained no entry")
                 pass #could not create a dataframe form session details. Returning dict instead
         
-        return (eids, ses) if details else eids
+        return ses if details else eids
 
     def _download_datasets(self, dsets, **kwargs) -> List[Path]:
         """
@@ -2385,7 +2381,7 @@ class OneAlyx(One):
         data_dict["number"] = str(int(data_dict["number"]))#remove leading zeros if any
         try :#a session have been found with same 3 parameters, don't allow to process to registering.
             _searched_session = self.search( subject = data_dict["subject"], number = data_dict["number"], date_range = data_dict["start_time"][:10], users = data_dict["users"] ,details = True)
-            url = re.sub(r"\/sessions", r"/actions/session" , _searched_session[1]["url"].item() )
+            url = re.sub(r"\/sessions", r"/actions/session" , _searched_session["url"].item() )
             raise ValueError(f"This session path is already registered ! See here : {url}\n You probably need to change the number of the session for this animald/date combo")
         except KeyError :#no session have benn found, all is well, can proceed
             pass
@@ -2475,6 +2471,121 @@ class OneAlyx(One):
         _logger.info("Applying changes")
         self.alyx.rest("sessions","partial_update", id = session_details.name,  data = data )
         self.alyx.delete_cache()
+        
+    def push_files(self, file_list, session_details, relative = False, overwrite_policy = "raise"):
+        """
+        The function push_processed_files copies a list of files to a remote session directory, and handles various overwrite policies.
+
+        Args:
+        
+            - file_list (list of str): a list of local file paths to be copied to the remote session directory.
+            - session_details (SessionDetails): an object containing the session details.
+            - relative: If the string representing the path of the files are absolute or relative from INSIDE the session folder (ex : 'D:\LOCAL_DATA\wm25\2022-08-05\001\a_folder\test.file' is an absolute path and 'a_folder\test.file' is a relative path)
+            - overwrite_policy (str, optional): the overwrite policy. Possibilities are: 
+              - "raise" (raise an exception if a file with the same name already exists in the remote directory), 
+              - "skip" (skip copying the file if a file with the same name already exists in the remote directory), 
+              - "overwrite" (overwrite the file with the same name in the remote directory),
+              - "most_recent" (copy the file only if it is more recent than the file with the same name in the remote directory), 
+              - "erase" (erase the existing file in the remote directory if a file with the same name already exists, then copy a new one in place.) Prefer choosing overwrite in most situations).
+
+            Default is "raise".
+        
+        Returns:
+        
+            a dictionary with two keys:
+              - "copied" : a list of file paths that have been copied to the remote session directory.
+              - "ignored" : a list of file paths that could not be copied (either because they were not found or because they were excluded by the overwrite policy).
+        """
+        
+        
+        import shutil
+        
+        def get_relative_path(absolute_path, common_root_path):
+            """
+            Compare an input path and a path with a common root with the input path, and returns only the part of the input path that is not shared with the _common_root_path.
+
+            Args:
+                input_path (TYPE): DESCRIPTION.
+                common_root_base (TYPE): DESCRIPTION.
+
+            Returns:
+                TYPE: DESCRIPTION.
+
+            """
+            absolute_path = os.path.normpath(absolute_path)
+            common_root_path = os.path.normpath(common_root_path)
+            
+            commonprefix = os.path.commonprefix([common_root_path,absolute_path])
+            if commonprefix == '':
+                raise IOError(f"These two pathes have no common root path : {absolute_path} and {common_root_path}")
+            return os.path.relpath(absolute_path, start = commonprefix )        
+        
+        overwrite_policies = ["raise","skip","erase","most_recent","overwrite"]
+        if not overwrite_policy in overwrite_policies :
+            raise NotImplementedError(f"Value {overwrite_policy} for overwrite_policy is not supported. Possibilities are : {overwrite_policies}")
+        
+        session_local_root = self.data_access_root(session_id = session_details.name, as_mode = "local")
+        session_remote_root = self.data_access_root(session_id = session_details.name, as_mode = "remote")
+        
+        if not isinstance(file_list,(list,tuple,np.ndarray)):
+            file_list = [file_list]
+        
+        if relative :
+            file_list = [os.path.join(session_local_root,session_details.rel_path,file) for file in file_list]
+        
+        source_files = [] #file paths that have been copied
+        dest_files = [] #files paths of the copies of the one in the list above (ordered similarly)
+        
+        overwrite_raise_list = []#stores files that already exist in remote folder in case we have 'raise' overwrite_policy, to print to user.
+        file_not_found_warning = []
+        
+        #MAKE THE LIST OF FILES THAT WILL BE COPIED
+        for local_path in file_list :
+            if not os.path.isfile(local_path):
+                file_not_found_warning.append(local_path)
+                continue
+            
+            try :
+                relative_path = get_relative_path(local_path, session_local_root)
+            except IOError :
+                file_not_found_warning.append(local_path)
+                
+            remote_path = os.path.join(session_remote_root,relative_path)
+                    
+            if os.path.isfile(remote_path):
+                if overwrite_policy == "raise":
+                    overwrite_raise_list.append(local_path)
+                elif overwrite_policy == "skip":
+                    logging.getLogger().info(f"Skipping file {remote_path}")
+                    continue
+                elif overwrite_policy == "erase" :
+                    os.remove(remote_path)      
+                elif overwrite_policy == "most_recent":
+                    if os.stat(remote_path).st_mtime > os.stat(local_path).st_mtime : #remote_path is more recent (higher time value)
+                        continue
+                elif overwrite_policy == "overwrite":
+                    pass
+                    #else if overwrite, we just do nothing and files will be overwritten during shutil.copy operation
+                
+            source_files.append(local_path)
+            dest_files.append(remote_path)
+        
+        if len(file_not_found_warning):
+            logging.getLogger().warning(f"These files were not found or are not inside the session local folder, and therefore cannot be copied :\nFiles:\n{file_not_found_warning}")
+        
+        if len(overwrite_raise_list):
+            raise IOError(f"The files listed below already exist in the destination : {session_remote_root}\nNo file have been copied to avoid mistakes. You can check the content of the destination folder manually, or change the 'overwrite_policy' argument of this function (beware of data losses !).\nFiles :\n {overwrite_raise_list}")
+        
+        #APPLY THE COPY
+        for local_path, remote_path in zip(source_files, dest_files) :
+            
+            container_dir = os.path.dirname(remote_path)
+            os.makedirs(container_dir, exist_ok=True)#make destination dir if it doesn't exist already
+            shutil.copy(local_path,remote_path)
+        
+        return {"copied" : source_files, "ignored" : list(set(file_list).difference(set(source_files)))}
+                                   
+        
         
     #     import json
         
