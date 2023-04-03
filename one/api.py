@@ -4,11 +4,11 @@ import warnings
 import logging
 import packaging.version
 from datetime import datetime, timedelta
-from functools import lru_cache, partial
+from functools import lru_cache, partial, wraps
 from inspect import unwrap
 from pathlib import Path, PurePosixPath
 import os
-from typing import Any, Union, Optional, List
+from typing import Any, Union, Optional, List, Tuple
 from uuid import UUID
 import time
 import threading
@@ -39,6 +39,7 @@ N_THREADS = 4
 
 def singleton(cls):
     instances = {}
+    @wraps(cls)
     def getinstance(*args, **kwargs):
         if cls not in instances or kwargs.get("regen",False) is True:
             kwargs.pop("regen",None)
@@ -1657,7 +1658,7 @@ class OneAlyx(One):
         return datasets if details else flatten_pathlist(datasets['files'].sort_values().values.tolist())
 
     @util.refresh
-    def pid2eid(self, pid: str, query_type=None) -> (str, str):
+    def pid2eid(self, pid: str, query_type=None) -> Tuple(str, str):
         """
         Given an Alyx probe UUID string, returns the session id string and the probe label
         (i.e. the ALF collection).
