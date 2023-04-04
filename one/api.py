@@ -1658,7 +1658,7 @@ class OneAlyx(One):
         return datasets if details else flatten_pathlist(datasets['files'].sort_values().values.tolist())
 
     @util.refresh
-    def pid2eid(self, pid: str, query_type=None) -> Tuple(str, str):
+    def pid2eid(self, pid: str, query_type=None) -> Tuple[str, str]:
         """
         Given an Alyx probe UUID string, returns the session id string and the probe label
         (i.e. the ALF collection).

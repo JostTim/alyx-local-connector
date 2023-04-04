@@ -2,7 +2,7 @@
 import logging
 import urllib.parse
 from functools import wraps
-from typing import Sequence, Union, Iterable, Optional, List
+from typing import Sequence, Union, Iterable, Optional, List, Tuple
 from collections.abc import Mapping
 import fnmatch
 from datetime import datetime
@@ -178,7 +178,7 @@ def refresh(method):
     return wrapper
 
 
-def validate_date_range(date_range) -> (pd.Timestamp, pd.Timestamp):
+def validate_date_range(date_range) -> Tuple[pd.Timestamp, pd.Timestamp]:
     """
     Validates and arrange date range in a 2 elements list
 
