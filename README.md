@@ -1,66 +1,61 @@
-# Open Neurophysiology Environment
-[![Coverage Status](https://coveralls.io/repos/github/int-brain-lab/ONE/badge.svg?branch=main)](https://coveralls.io/github/int-brain-lab/ONE?branch=main)
-![CI workflow](https://github.com/int-brain-lab/ONE/actions/workflows/main.yaml/badge.svg?branch=main)
+# Open Neurophysiology Environment - HaissLab flavour
 
 The Open Neurophysiology Environment is a scheme for sharing neurophysiology data in a standardized manner. For information on how to share data with ONE please [click here](https://github.com/int-brain-lab/ONE/blob/main/docs/Open_Neurophysiology_Environment_Filename_Convention.pdf). This github page contains an API for searching and loading ONE-standardized data, stored either on a user’s local machine or on a remote server. Please [Click here](https://int-brain-lab.github.io/ONE/) for the main documentation page.
 
-**NB**: The API and backend database are still under active development, for the best experience please regularly update the package by running `pip install -U ONE-api`. 
+**NB**: The API and backend database are still under active development, for the best experience please regularly update the package by running `pip install -U git+https://gitlab.pasteur.fr/haisslab/data-management/ONE.git`. 
 
 ## Requirements
 ONE runs on Python 3.7 or later, and is tested on the latest Ubuntu and Windows (3.7 and 3.8 only).
 
 ## Installing
-Installing the package via pip typically takes a few seconds.  To install, run
+Installing the package via pip typically takes a few seconds.  To install, activate your developpement environment :
 ```
-pip install ONE-api
+conda activate <myenvironment>
+```
+Then run the One-api install using :
+```
+pip install git+https://gitlab.pasteur.fr/haisslab/data-management/ONE.git
 ```
 
 ## Set up
-For using ONE with a local cache directory:
-```python
-from one.api import One
-one = One(cache_dir='/home/user/downlaods/ONE/behavior_paper')
-```
 
-For setting up ONE for a given database e.g. internal IBL Alyx:
+For setting up ONE for a given database e.g. our local version of Alyx at HaissLab:
 ```python
-from one.api import ONE
-one = ONE(base_url='https://alyx.internationalbrainlab.org')
-```
-
-To use the default setup settings that connect you to the [IBL public database](https://openalyx.internationalbrainlab.org):
-```python
-from one.api import ONE
-one = ONE(silent=True, password='international')  # Will use default information
+from one import ONE
+one = ONE(base_url='http://157.99.138.172:8080')
 ```
 
 Once you've setup the server, subsequent calls will use the same parameters:
 ```python
-from one.api import ONE
-one = ONE()
-```
+from one import ONE
+one = ONE() #uses the same parameters entered the first time and stored by default in C:\Users\<myusername>\AppData\Roaming\.one\.157.99.138.172_8080: 
 
-To set up ONE for another database and make it the default:
+```
+For using ONE with a local cache directory (not recommanded for now):
 ```python
-from one.api import OneAlyx, ONE
-OneAlyx.setup(base_url='https://test.alyx.internationalbrainlab.org', make_default=True)
-one = ONE()  # Connected to https://test.alyx.internationalbrainlab.org
+from one import One
+one = One(cache_dir='/home/user/downlaods/ONE/behavior_paper')
 ```
 
 ## Using ONE
 To search for sessions:
 ```python
-from one.api import ONE
+from one import ONE
 one = ONE()
 print(one.search_terms())  # A list of search keyword arguments
 
 # Search session with wheel timestamps from January 2021 onward
 eids = one.search(date_range=['2021-01-01',], dataset='wheel.timestamps')
-['d3372b15-f696-4279-9be5-98f15783b5bb']
+['d3372b15-f696-4279-9be5-98f15783b5bb'] # this is a list of unique ids of sessions returned. Here only one has been found with given parameters
 
 # Search for project sessions with two probes
 eids = one.search(data=['probe00', 'probe01'], project='brainwide')
 ```
+
+Further examples and tutorials can be found in the main IBL documentation [documentation](https://int-brain-lab.github.io/ONE/).
+
+
+(Not currentely supported :)
 
 To load data:
 ```python
@@ -79,4 +74,4 @@ ts = one.load_dataset(eid, 'wheel.timestamps', collection='alf')
 filename = one.load_dataset(eid, 'wheel.timestamps', download_only=True)
 ```
 
-Further examples and tutorials can be found in the [documentation](https://int-brain-lab.github.io/ONE/).
+
