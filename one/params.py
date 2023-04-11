@@ -125,6 +125,11 @@ def setup(client=None, silent=False, make_default=None, username=None):
         for k in par.keys():
             cpar = _get_current_par(k, par_current)
             # Prompt for database URL; skip if client url already provided
+
+            #We do not use an HTTP data server but smb file exchange.
+            if "HTTP_DATA_SERVER" in k :
+                par[k] = "--unused"
+
             if k == 'ALYX_URL':
                 if not client:
                     par[k] = input(f'Param {k}, current value is ["{str(cpar)}"]:') or cpar
@@ -138,10 +143,12 @@ def setup(client=None, silent=False, make_default=None, username=None):
             elif 'PWD' not in k:
                 par[k] = input(f'Param {k}, current value is ["{str(cpar)}"]:') or cpar
 
-        cpar = _get_current_par('HTTP_DATA_SERVER_PWD', par_current)
-        prompt = f'Enter the FlatIron HTTP password for {par["HTTP_DATA_SERVER_LOGIN"]} '\
-                 '(leave empty to keep current): '
-        par['HTTP_DATA_SERVER_PWD'] = getpass(prompt) or cpar
+
+        #REMOVED : we do not use an HTTP data server but smb file exchange.
+        #cpar = _get_current_par('HTTP_DATA_SERVER_PWD', par_current)
+        #prompt = f'Enter the FlatIron HTTP password for {par["HTTP_DATA_SERVER_LOGIN"]} '\
+        #         '(leave empty to keep current): '
+        #par['HTTP_DATA_SERVER_PWD'] = getpass(prompt) or cpar
 
         if 'ALYX_PWD' in par_current.as_dict():
             # Only store plain text password if user manually added it to params JSON file
