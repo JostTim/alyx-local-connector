@@ -8,9 +8,12 @@ The Open Neurophysiology Environment is a scheme for sharing neurophysiology dat
 ONE runs on Python 3.7 or later, and is tested on the latest Ubuntu and Windows (3.7 and 3.8 only).
 
 ## Installing
-Installing the package via pip typically takes a few seconds.  To install, run
+Installing the package via pip typically takes a few seconds.  To install, activate your developpement environment :
 ```
 conda activate <myenvironment>
+```
+Then run the One-api install using :
+```
 pip install git+https://gitlab.pasteur.fr/haisslab/data-management/ONE.git
 ```
 
