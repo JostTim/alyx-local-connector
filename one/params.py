@@ -126,9 +126,10 @@ def setup(client=None, silent=False, make_default=None, username=None):
             cpar = _get_current_par(k, par_current)
             # Prompt for database URL; skip if client url already provided
 
-            #We do not use an HTTP data server but smb file exchange.
+            #We do not use an HTTP data server but smb file exchange. All HTTP_DATA_SERVER params are set to --unused
             if "HTTP_DATA_SERVER" in k :
                 par[k] = "--unused"
+                continue
 
             if k == 'ALYX_URL':
                 if not client:
