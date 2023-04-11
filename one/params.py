@@ -21,17 +21,18 @@ import unicodedata
 _PAR_ID_STR = 'one'
 _CLIENT_ID_STR = 'caches'
 CACHE_DIR_DEFAULT = str(Path.home() / "Downloads" / "ONE")
-"""str: The default data download location"""
-
+"""str: The default database location"""
+LOCAL_ROOT_DIR_DEFAULT = Path(CACHE_DIR_DEFAULT) / "LOCAL_DATA"
+"""str: The default rawdata download location"""
 
 def default():
     """Default Web client parameters"""
     par = {"ALYX_URL": "http://157.99.138.172:8080",
            "ALYX_LOGIN": "guest",
-           "HTTP_DATA_SERVER": "http://157.99.138.147:5005/lab/data/ONE/",
-           "HTTP_DATA_SERVER_LOGIN": None,
-           "HTTP_DATA_SERVER_PWD": None,
-           "LOCAL_ROOT" : None}
+           "HTTP_DATA_SERVER": "--unused",
+           "HTTP_DATA_SERVER_LOGIN": "--unused",
+           "HTTP_DATA_SERVER_PWD": "--unused",
+           "LOCAL_ROOT" : LOCAL_ROOT_DIR_DEFAULT}
     return iopar.from_dict(par)
 
 
@@ -158,13 +159,18 @@ def setup(client=None, silent=False, make_default=None, username=None):
                       '(leave empty to keep current):')
             par['ALYX_PWD'] = getpass(prompt) or cpar
 
+        #create the LOCAL_ROOT directory if it does not exist
+        Path(par["LOCAL_ROOT"]).mkdir(exist_ok=True, parents=True)
+
         par = iopar.from_dict(par)
 
         # Prompt for cache directory
         client_key = _key_from_url(par.ALYX_URL)
         cache_dir = Path(CACHE_DIR_DEFAULT, client_key)
-        prompt = f'Enter the location of the download cache, current value is ["{cache_dir}"]:'
-        cache_dir = input(prompt) or cache_dir
+        answer = input(f'Would you like to keep the default database cache location ? [Y/n]')
+        if (answer or 'y')[0].lower() == 'n':
+            prompt = f'Enter the location of the database cache, current value is ["{cache_dir}"]:'
+            cache_dir = input(prompt) or cache_dir
 
         # Check if directory already used by another instance
         in_use = [v for k, v in cache_map.CLIENT_MAP.items() if k != client_key]
@@ -194,7 +200,7 @@ def setup(client=None, silent=False, make_default=None, username=None):
     rest_dir.mkdir(exist_ok=True, parents=True)
     from iblutil.io.params import set_hidden
     set_hidden(rest_dir, True)
-    
+
     cache_map.CLIENT_MAP[client_key] = str(cache_dir)
     if make_default or 'DEFAULT' not in cache_map.as_dict():
         cache_map = cache_map.set('DEFAULT', client_key)
@@ -206,7 +212,6 @@ def setup(client=None, silent=False, make_default=None, username=None):
         print('ONE Parameter files location: ' + iopar.getfile(_PAR_ID_STR))
  
     return cache_map
-
 
 def get(client=None, silent=False, username=None):
     """Returns the AlyxClient parameters
