@@ -1646,12 +1646,13 @@ class OneAlyx(One):
         if not "files" in datasets.columns:
             datasets.loc[:,"files"] = None
         column_index = datasets.columns.get_loc("files")
+        root = self.data_access_root(eid,as_mode = as_mode)
         for index in range(len(datasets)):
             files = self.alyx.rest("datasets","read",datasets.iloc[index,:].name[1])["file_records"]
             filepaths = []
             repo = self.alyx.rest("data-repository","read",files[0]["data_repository"])
             for file in files :
-                filepaths.append(os.path.normpath(os.path.join(self.data_access_root(eid,as_mode = as_mode),file["relative_path"])))
+                filepaths.append(os.path.normpath(os.path.join(root,file["relative_path"])))
             datasets.iat[index,column_index] = filepaths
                 
         #changed return details default from 'rel_path' to 'files'
@@ -2358,7 +2359,7 @@ class OneAlyx(One):
                     'date': datetime.fromisoformat(out['start_time']).date()})
         return out
 
-###METHODS ADDED BY TIMOTHE TO SIMPLIFY USE OF THE ONE API
+###METHODS ADDED BY TIMOTHE TO EXTEND THE USE OF THE API
 
     def get_data_repository_path(self,repository_name):
         repo_data = self.alyx.rest("data-repository","read",repository_name)
@@ -2473,7 +2474,13 @@ class OneAlyx(One):
         self.alyx.rest("sessions","partial_update", id = session_details.name,  data = data )
         self.alyx.delete_cache()
         
-    def push_files(self, file_list, session_details, relative = False, overwrite_policy = "raise"):
+    
+
+        overwrite_policies = ["raise","skip","erase","most_recent","overwrite"]
+        if not overwrite_policy in overwrite_policies :
+            raise NotImplementedError(f"Value {overwrite_policy} for overwrite_policy is not supported. Possibilities are : {overwrite_policies}")
+        
+    def push_files(self, file_list, *,session_details, relative = False, overwrite_policy = "raise"):
         """
         The function push_processed_files copies a list of files to a remote session directory, and handles various overwrite policies.
 
@@ -2497,8 +2504,7 @@ class OneAlyx(One):
               - "copied" : a list of file paths that have been copied to the remote session directory.
               - "ignored" : a list of file paths that could not be copied (either because they were not found or because they were excluded by the overwrite policy).
         """
-        
-        
+
         import shutil
         
         def get_relative_path(absolute_path, common_root_path):
@@ -2585,8 +2591,81 @@ class OneAlyx(One):
             shutil.copy(local_path,remote_path)
         
         return {"copied" : source_files, "ignored" : list(set(file_list).difference(set(source_files)))}
-                                   
-        
+
+
+    def copy_files(source_file_list, source_root, destination_root, overwrite_policy="raise"):
+
+        def get_relative_path(absolute_path, common_root_path):
+            """
+            Compare an input path and a path with a common root with the input path, and returns only the part of the input path that is not shared with the _common_root_path.
+
+            Args:
+                input_path (TYPE): DESCRIPTION.
+                common_root_base (TYPE): DESCRIPTION.
+
+            Returns:
+                TYPE: DESCRIPTION.
+
+            """
+            absolute_path = os.path.normpath(absolute_path)
+            common_root_path = os.path.normpath(common_root_path)
+            
+            commonprefix = os.path.commonprefix([common_root_path,absolute_path])
+            if commonprefix == '':
+                raise IOError(f"These two pathes have no common root path : {absolute_path} and {common_root_path}")
+            return os.path.relpath(absolute_path, start = commonprefix )    
+
+        # Check if the overwrite_policy is supported
+        overwrite_policies = ["raise", "skip", "erase", "most_recent", "overwrite"]
+        if overwrite_policy not in overwrite_policies:
+            raise ValueError(f"Unsupported value for overwrite_policy: {overwrite_policy}. Possibilities are: {overwrite_policies}")
+
+        # Iterate through the list of source files and copy them to the destination
+        copied_files = []
+        ignored_files = []
+
+        for source_file_path in source_file_list:
+            # Get the relative path of the source file with respect to the source root
+            relative_path = get_relative_path(source_file_path, source_root)
+
+            # Create the destination path by joining the destination root and the relative path
+            destination_path = os.path.join(destination_root, relative_path)
+
+            # Check if the file exists at the source location and is a file
+            if not os.path.isfile(source_file_path):
+                ignored_files.append(source_file_path)
+                continue
+
+            # Check if the file exists at the destination location and apply the overwrite policy accordingly
+            if os.path.isfile(destination_path):
+                if overwrite_policy == "raise":
+                    raise ValueError(f"File already exists at the destination: {destination_path}")
+                elif overwrite_policy == "skip":
+                    ignored_files.append(source_file_path)
+                    continue
+                elif overwrite_policy == "erase":
+                    os.remove(destination_path)
+                elif overwrite_policy == "most_recent":
+                    if os.stat(destination_path).st_mtime > os.stat(source_file_path).st_mtime:
+                        ignored_files.append(source_file_path)
+                        continue
+                elif overwrite_policy == "overwrite":
+                    pass
+
+            # Create the directory structure at the destination if it does not exist already
+            os.makedirs(os.path.dirname(destination_path), exist_ok=True)
+
+            # Copy the file from source to destination
+            shutil.copy(source_file_path, destination_path)
+
+            # Append the copied file to the list of copied files
+            copied_files.append(source_file_path)
+
+        # Return a dictionary with the list of copied and ignored files
+        return {"copied": copied_files, "ignored": ignored_files}
+
+    def pull_files(self, file_list, *,session_details, relative = False, overwrite_policy = "raise"):
+        pass
         
     #     import json
         
