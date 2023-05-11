@@ -1752,9 +1752,8 @@ class OneAlyx(One):
         
         def fix_url(url_input):
             import re
-            return re.sub(r"^(https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5})(\/)(session)(s)(.*)$",r"\g<1>/admin/actions/\g<3>\g<5>",url_input)
+            return re.sub(r"^(https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d{1,5})?)\/(session)s(.*)$",r"\g<1>/admin/actions/\g<2>\g<3>",url_input)
 
-            
         query_type = query_type or self.mode
         if query_type != 'remote':
             return super().search(details=details, query_type=query_type, **kwargs)
@@ -1783,17 +1782,17 @@ class OneAlyx(One):
             s['date'] = str(datetime.fromisoformat(s['start_time']).date())
             s['json'] = self.get_json_params(s["id"])
             s['extended_qc'] = self.get_extended_qc(s["id"])
-            s['rel_path'] = self.eid2path(s["id"])  # TODO should be renamed rel_path & check compatibility eveywhere
-            alias_name = s['rel_path'].replace("-","_").replace("\\","_")
-            s['alias_name'] = alias_name
+            s['rel_path'] = Path(self.eid2path(s["id"]))  # TODO should be renamed rel_path & check compatibility eveywhere
+            s['alias_name'] = str(s['rel_path']).replace("-","_").replace("\\","_")
             s['short_path'] = s['rel_path']
             try :
-                s['path'] = os.path.join( self.data_access_root(s["id"]), s['rel_path'])
+                s['path'] = Path(self.data_access_root(s["id"])) / s['rel_path']
             except OSError:
                 warnings.warn(f"Session {s['id']} has not registered file yet. Cannot get the session root into 'path' field. Skipping")
             s['url'] = fix_url(s['url'])
             ses[index] = s
         # LazyId only transforms records when indexex : More annoying than usefull when using small amount of sessions
+        # TODO : Change the above to work even in paginated mode when many sessions are returned
         eids = list(util.LazyId(ses))
         if details :
             try :

@@ -14,3 +14,4 @@ dist/
 scratch/
 .coverage
 *.egg-info/
+scripts*
