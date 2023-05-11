@@ -1781,7 +1781,8 @@ class OneAlyx(One):
         for index, s  in enumerate(ses):
             s['date'] = str(datetime.fromisoformat(s['start_time']).date())
             s['json'] = self.get_json_params(s["id"])
-            s['extended_qc'] = self.get_extended_qc(s["id"])
+            ext_qc = self.get_extended_qc(s["id"])
+            s['extended_qc'] = ext_qc if ext_qc is not None else {}
             s['rel_path'] = Path(self.eid2path(s["id"]))  # TODO should be renamed rel_path & check compatibility eveywhere
             s['alias_name'] = str(s['rel_path']).replace("-","_").replace("\\","_")
             s['short_path'] = s['rel_path']
