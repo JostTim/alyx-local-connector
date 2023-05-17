@@ -110,6 +110,8 @@ REL_PATH_SPEC = f'{COLLECTION_SPEC}{FILE_SPEC}'
 FULL_SPEC = f'{SESSION_SPEC}/{REL_PATH_SPEC}'
 """str: The full ALF path specification pattern without a root path (stopping up to subject or lab)"""
 
+SESSION_ABSOLUTE_SPEC = f'{ROOT_SPEC}/{SESSION_SPEC}'
+
 FULL_ABSOLUTE_SPEC = f'{ROOT_SPEC}/{SESSION_SPEC}/{REL_PATH_SPEC}'
 """str: The full ALF path specification pattern with a full root"""
 
@@ -427,9 +429,9 @@ def to_full_path(subject = None,
                 revision = "",
 
                 session_details = None,
+                dromedarize = True,
                 #UNUSED PARTS
                 lab = None,
-                dromedarize = True
                 ):
     import os
     
@@ -438,7 +440,16 @@ def to_full_path(subject = None,
         date = session_details.date
         number = str(session_details.number)
     
-    number = str(int(number)).zfill(3)
+    if subject is None :
+        subject = ""
+
+    if date is None :
+        date = ""
+
+    if number is not None :
+        number = str(int(number)).zfill(3)
+    else :
+        number = ""
     
     if not isinstance(collection, (tuple,list)):
         collection = [collection]

@@ -1454,7 +1454,8 @@ class OneAlyx(One):
                 first_dataset_id = self.alyx.rest("sessions","read",id = session_id)["data_dataset_session_related"][0]['id']
                 first_file_repository = self.alyx.rest("files","list",dataset = [first_dataset_id],limit = 1)[0]["data_repository"]
             except IndexError:
-                _logger.warning(f"Session {session_id} has not registered file yet. Cannot get the session root")
+                _logger.warning(f"Session {session_id} has not registered file yet. Cannot get the session root. Using set_current_remote_repository instead")
+                
                 return self.current_remote_repository_path 
             return self.get_data_repository_path(first_file_repository)
         else :
@@ -1634,7 +1635,7 @@ class OneAlyx(One):
         
         session, datasets = util.ses2records(self.alyx.rest('sessions', 'read', id=eid))
         # Add to cache tables
-        self._update_cache_from_records(sessions=session, datasets=datasets.copy())
+        self._update_cache_from_records(sessions=session, datasets=datasets.copy() if datasets is not None else datasets)
         if datasets is None or datasets.empty:
             return self._cache['datasets'].iloc[0:0] if details else []  # Return empty
         datasets = util.filter_datasets(
@@ -1689,7 +1690,7 @@ class OneAlyx(One):
         return rec['session'], rec['name']
 
     #### SEARCH
-    def search(self, details=False, query_type=None, **kwargs):
+    def search(self, details=False, query_type=None, as_mode = None, **kwargs):
         """
         Searches sessions matching the given criteria and returns a list of matching eids
 
@@ -1750,9 +1751,7 @@ class OneAlyx(One):
             matching session
         """
         
-        def fix_url(url_input):
-            import re
-            return re.sub(r"^(https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d{1,5})?)\/(session)s(.*)$",r"\g<1>/admin/actions/\g<2>\g<3>",url_input)
+        
 
         query_type = query_type or self.mode
         if query_type != 'remote':
@@ -1778,32 +1777,44 @@ class OneAlyx(One):
         # Make GET request
         ses = self.alyx.rest(self._search_endpoint, 'list', **params)
         # Add date field for compatibility with One.search output
-        for index, s  in enumerate(ses):
-            s['date'] = str(datetime.fromisoformat(s['start_time']).date())
-            s['json'] = self.get_json_params(s["id"])
-            ext_qc = self.get_extended_qc(s["id"])
-            s['extended_qc'] = ext_qc if ext_qc is not None else {}
-            s['rel_path'] = Path(self.eid2path(s["id"]))  # TODO should be renamed rel_path & check compatibility eveywhere
-            s['alias_name'] = str(s['rel_path']).replace("-","_").replace("\\","_")
-            s['short_path'] = s['rel_path']
-            try :
-                s['path'] = Path(self.data_access_root(s["id"])) / s['rel_path']
-            except OSError:
-                warnings.warn(f"Session {s['id']} has not registered file yet. Cannot get the session root into 'path' field. Skipping")
-            s['url'] = fix_url(s['url'])
-            ses[index] = s
-        # LazyId only transforms records when indexex : More annoying than usefull when using small amount of sessions
-        # TODO : Change the above to work even in paginated mode when many sessions are returned
-        eids = list(util.LazyId(ses))
         if details :
+            sess_df = []
+            for s in ses:
+                s = self.to_session_details(s, as_mode = as_mode)
+                sess_df.append(s)
+                
             try :
-                ses = pd.DataFrame(ses)
-                ses = ses.set_index("id")
+                sess_df = pd.DataFrame(sess_df)
+                sess_df.index = sess_df.index.set_names('id')
             except (ValueError, KeyError) :
                 warnings.warn("search result contained no entry")
                 pass #could not create a dataframe form session details. Returning dict instead
+        else :
+            eids = list(util.LazyId(ses))
+            # LazyId only transforms records when indexex : More annoying than usefull when using small amount of sessions, using list to convert it to normal list
+        return sess_df if details else eids
+
+    def to_session_details(self,session_dict, as_mode = None):
+
+        def fix_url(url_input):
+            import re
+            return re.sub(r"^(https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d{1,5})?)\/(session)s(.*)$",r"\g<1>/admin/actions/\g<2>\g<3>",url_input)
         
-        return ses if details else eids
+        session_dict['date'] = str(datetime.fromisoformat(session_dict['start_time']).date())
+        session_dict['json'] = self.get_json_params(session_dict["id"])
+        ext_qc = self.get_extended_qc(session_dict["id"])
+        session_dict['extended_qc'] = ext_qc if ext_qc is not None else {}
+        session_dict['rel_path'] = Path(self.eid2path(session_dict["id"]))  # TODO should be renamed rel_path & check compatibility eveywhere
+        session_dict['alias_name'] = str(session_dict['rel_path']).replace("-","_").replace("\\","_")
+        session_dict['short_path'] = session_dict['rel_path']
+        try :
+            session_dict['path'] = Path(self.data_access_root(session_dict["id"],as_mode = as_mode)) / session_dict['rel_path']
+        except OSError:
+            warnings.warn(f"Session {session_dict['id']} has not registered file yet. Cannot get the session root into 'path' field. Skipping")
+        session_dict['edit_url'] = fix_url(session_dict['url'])
+        id = session_dict.pop("id")
+        session_details = pd.Series(session_dict,name = id)
+        return session_details
 
     def _download_datasets(self, dsets, **kwargs) -> List[Path]:
         """
