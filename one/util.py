@@ -16,6 +16,7 @@ import one.alf.exceptions as alferr
 from one.alf.files import rel_path_parts, get_session_path, get_alf_path
 from one.alf.spec import FILE_SPEC, regex as alf_regex
 import one.alf.io as alfio
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,10 @@ def ses2records(ses: dict, int_id=False):
             file_path = ''
             rec['session_path'] = file_path
             rec['rel_path'] = file_path
-        
+        rec['dataset_type'] = d['dataset_type']
+        rec['revision'] = d['revision']
+        rec['version'] = d['version']
+        rec['collection'] = d['collection'] or ''
         rec['default_revision'] = d['default_revision'] == 'True'
         return rec
 
@@ -107,7 +111,8 @@ def datasets2records(datasets, int_id=False) -> pd.DataFrame:
     records = []
 
     for d in ensure_list(datasets):
-        file_record = next((x for x in d['file_records'] if x['data_url'] and x['exists']), None)
+        file_record = next((x for x in d['file_records'] if x['exists']), None)
+        print(file_record)
         if not file_record:
             continue  # Ignore files that are not accessible
         rec = dict(file_size=d['file_size'], hash=d['hash'], exists=True)
@@ -123,6 +128,10 @@ def datasets2records(datasets, int_id=False) -> pd.DataFrame:
         rec['session_path'] = get_session_path(file_path).as_posix()
         rec['rel_path'] = file_path[len(rec['session_path']):].strip('/')
         rec['default_revision'] = d['default_dataset']
+        rec['dataset_type'] = d['dataset_type']
+        rec['version'] = d['version']
+        rec['collection'] = d['collection'] or ''
+        rec['revision'] = d['revision']
         records.append(rec)
 
     index = ['eid_0', 'eid_1', 'id_0', 'id_1'] if int_id else ['eid', 'id']
@@ -349,6 +358,22 @@ def filter_datasets(all_datasets, filename=None, collection=None, revision=None,
 
     >>> datasets = filter_datasets(all_datasets, dict(object='spikes', attribute='times'))
     """
+
+    def text_is_in(cell,text=None):
+        if text is None :
+            return True
+        if cell is None :
+            return False
+        if re.match(text,cell):
+            return True
+        return False
+
+    collection_filter = all_datasets["collection"].apply(text_is_in,text = collection)
+    filename_filter = all_datasets["dataset_type"].apply(text_is_in,text = filename)
+    
+    match = all_datasets[collection_filter & filename_filter]
+    return filter_revision_last_before(match, revision, assert_unique=assert_unique)
+
     # Create a regular expression string to match relative path against
     filename = filename or {}
     regex_args = {'collection': collection}
@@ -376,6 +401,7 @@ def filter_datasets(all_datasets, filename=None, collection=None, revision=None,
             regex_args[k] = '|'.join(v)  # logical OR
 
     # Build regex string
+
     pattern = alf_regex('^' + spec_str, **regex_args)
     match = all_datasets[all_datasets['rel_path'].str.match(pattern)]
     if len(match) == 0 or not (revision_last_before or assert_unique):
@@ -423,6 +449,10 @@ def filter_revision_last_before(datasets, revision=None, assert_unique=True):
     pd.DataFrame
         A datasets DataFrame with 0 or 1 row per unique dataset
     """
+    if revision is None :
+        return datasets[datasets["default_revision"]]
+    return datasets[datasets["revision"]==revision]
+
     def _last_before(df):
         """Takes a DataFrame with only one dataset and multiple revisions, returns matching row"""
         if revision is None and 'default_revision' in df.columns:

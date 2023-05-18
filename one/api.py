@@ -1015,7 +1015,7 @@ class One(ConversionMixin):
         >>> old_spikes = one.load_dataset(eid, 'spikes.times.npy',
         ...                               collection='alf/probe01', revision='2020-08-31')
         """
-        warnings.warn("load_dataset and load_datasets methods are deactivated for now. For now, they cause issues and are not usefull as our installation of alyx in HaissLab is local.")
+        warnings.warn("load_dataset and load_datasets methods are deactivated. They are not usefull as our installation of alyx in HaissLab is local.")
         return
         
         datasets = self.list_datasets(eid, details=True, query_type=query_type or self.mode)
@@ -1640,8 +1640,12 @@ class OneAlyx(One):
             return self._cache['datasets'].iloc[0:0] if details else []  # Return empty
         datasets = util.filter_datasets(
             datasets, assert_unique=False, wildcards=self.wildcards, **filters)
+        if datasets.empty:
+            _logger.warning("The settings you provided didn't allowed to select any dataset but there is some that are registered to this session. You may need to change the parameters")
+            return []
         # Return only the relative path
         
+        _logger.debug("datasets : " + str(datasets))
         
         ## ADD FULL PATH FILE LIST TO THE DATAFRAME (added by timothe)
         if not "files" in datasets.columns:
@@ -1809,8 +1813,10 @@ class OneAlyx(One):
         session_dict['short_path'] = session_dict['rel_path']
         try :
             session_dict['path'] = Path(self.data_access_root(session_dict["id"],as_mode = as_mode)) / session_dict['rel_path']
-        except OSError:
-            warnings.warn(f"Session {session_dict['id']} has not registered file yet. Cannot get the session root into 'path' field. Skipping")
+        except AttributeError:
+            warnings.warn(f"Session {session_dict['id']} has no registered file yet. Cannot get the session root into 'path' field. Skipping")
+            session_dict['path'] = None
+
         session_dict['edit_url'] = fix_url(session_dict['url'])
         id = session_dict.pop("id")
         session_details = pd.Series(session_dict,name = id)
@@ -2128,7 +2134,7 @@ class OneAlyx(One):
         # If eid is a list recurse through it and return a list
         if isinstance(eid, list):
             unwrapped = unwrap(self.path2eid)
-            return [unwrapped(self, e, query_type='remote') for e in eid]
+            return [unwrapped(self, e, data_repository = data_repository, query_type='remote') for e in eid]
 
         # if it wasn't successful, query Alyx
         ses = self.alyx.rest('sessions', 'list', django=f'pk,{eid}')
