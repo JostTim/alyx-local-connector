@@ -1754,8 +1754,6 @@ class OneAlyx(One):
             If details is True, also returns a list of dictionaries, each entry corresponding to a
             matching session
         """
-        
-        
 
         query_type = query_type or self.mode
         if query_type != 'remote':
@@ -1769,7 +1767,12 @@ class OneAlyx(One):
             # check that the input matches one of the defined filters
             if field == 'date_range':
                 params[field] = [x.date().isoformat() for x in util.validate_date_range(value)]
+            # elif field == "procedures" :
+            #     query = 'procedures__name,'+','.join(util.ensure_list(value))
+            #     params['django'] += (',' if params['django'] else '') + query
+
             elif field == 'dataset':
+                _logger.warning("Beware, the dataset method seems to not be working for now. Please use dataset_types instead")
                 query = ('data_dataset_session_related__dataset_type__name__icontains,' +
                          ','.join(util.ensure_list(value)))
                 params['django'] += (',' if params['django'] else '') + query
@@ -1803,7 +1806,7 @@ class OneAlyx(One):
         def fix_url(url_input):
             import re
             return re.sub(r"^(https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d{1,5})?)\/(session)s(.*)$",r"\g<1>/admin/actions/\g<2>\g<3>",url_input)
-        
+        #print(session_dict)
         session_dict['date'] = str(datetime.fromisoformat(session_dict['start_time']).date())
         session_dict['json'] = self.get_json_params(session_dict["id"])
         ext_qc = self.get_extended_qc(session_dict["id"])

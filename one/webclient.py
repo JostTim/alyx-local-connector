@@ -1016,6 +1016,7 @@ class AlyxClient():
                 # Convert all lists in query params to comma separated list
                 query_params = {k: ','.join(map(str, ensure_list(v))) for k, v in kwargs.items()}
                 url = update_url_params(url, query_params)
+            #print(url)
             return self.get('/' + url, **cache_args)
         if not isinstance(id, str) and id is not None:
             id = str(id)  # e.g. may be uuid.UUID
