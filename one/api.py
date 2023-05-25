@@ -1787,6 +1787,7 @@ class OneAlyx(One):
         if details :
             sess_df = []
             for s in ses:
+                s = self.alyx.rest("sessions", 'read', id = s.id)
                 s = self.to_session_details(s, as_mode = as_mode)
                 sess_df.append(s)
                 
