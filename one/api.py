@@ -1653,12 +1653,12 @@ class OneAlyx(One):
         column_index = datasets.columns.get_loc("files")
         root = self.data_access_root(eid,as_mode = as_mode)
         for index in range(len(datasets)):
-            files = self.alyx.rest("datasets","read",datasets.iloc[index,:].name[1])["file_records"]
+            files = self.alyx.rest("datasets","read",datasets.iloc[index].name[1])["file_records"] #datasets.iloc[index].name[1] : datasets_id idex 0 : session_id
             filepaths = []
             repo = self.alyx.rest("data-repository","read",files[0]["data_repository"])
             for file in files :
                 filepaths.append(os.path.normpath(os.path.join(root,file["relative_path"])))
-            datasets.iat[index,column_index] = filepaths
+            datasets.iat[index,column_index] = filepaths # adding a column 'files' containing the fullpath or all files
                 
         #changed return details default from 'rel_path' to 'files'
         return datasets if details else flatten_pathlist(datasets['files'].sort_values().values.tolist())

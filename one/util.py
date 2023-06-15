@@ -367,7 +367,6 @@ def filter_datasets(all_datasets, filename=None, collection=None, revision=None,
         if re.match(text,cell):
             return True
         return False
-
     collection_filter = all_datasets["collection"].apply(text_is_in,text = collection)
     filename_filter = all_datasets["dataset_type"].apply(text_is_in,text = filename)
     

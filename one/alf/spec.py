@@ -1,5 +1,5 @@
 """The complete ALF specification descriptors and validators"""
-import re
+import re, os
 import textwrap
 from uuid import UUID
 from typing import Union
@@ -92,31 +92,39 @@ SPEC_DESCRIPTION = {
 # The following are the specifications and patterns for ALFs #
 # ========================================================== #
 
+# TODO :  
+# change the spec to be relaxed : (relax the use of _ and camelcase, no more timescale,namespace, (too complex, keep simple for users. timescale can be defined in the database in necessary, in file records, but i doubt it will ever be needed) relax the use of # in the path while keeping revisions syntax)
+# (?P<root>^[^<>\"|?*]+?)(?:/|\\)(?:(?P<lab>\w+)(?:/|\\)Subjects(?:/|\\))?(?P<subject>[\w-]+)(?:/|\\)(?P<date>\d{4}-\d{2}-\d{2})(?:/|\\)(?P<number>\d{1,3})(?:/|\\)(?:(?P<collection>[\w#/]+?)(?:/|\\))?(#(?P<revision>[\w-]+)#(?:/|\\))?(?P<object>[\w#]+)\.(?P<attribute>[\w#]+)(?:\.(?P<extra>[.\w-]+))*\.(?P<extension>\w+)$
 
-ROOT_SPEC = '{root}'
+SEPARATOR = r"(?:/|\\)"
+"""Just an helper to match either unix or windows like path strings more easily"""
 
-SESSION_SPEC = '({lab}/Subjects/)?{subject}/{date}/{number}'
+ROOT_SPEC = '^{root}'
+
+#relaxing
+#SESSION_SPEC = '({lab}/Subjects/)?{subject}/{date}/{number}'
+SESSION_SPEC = '{subject}/{date}/{number}'
 """str: The session specification pattern"""
 
 COLLECTION_SPEC = r'({collection}/)?(#{revision}#/)?'
 """str: The collection and revision specification pattern"""
 
-FILE_SPEC = r'_?{namespace}?_?{object}\.{attribute}(?:_{timescale})?(?:\.{extra})*\.{extension}$'
+#relaxing
+#FILE_SPEC = r'_?{namespace}?_?{object}\.{attribute}(?:_{timescale})?(?:\.{extra})*\.{extension}$'
+FILE_SPEC = r'{object}\.{attribute}(?:\.{extra})*\.{extension}$'
 """str: The filename specification pattern"""
 
 REL_PATH_SPEC = f'{COLLECTION_SPEC}{FILE_SPEC}'
 """str: The collection, revision and filename specification pattern"""
 
-FULL_SPEC = f'{SESSION_SPEC}/{REL_PATH_SPEC}'
+FULL_SPEC = f'{SESSION_SPEC}{SEPARATOR}{REL_PATH_SPEC}'
 """str: The full ALF path specification pattern without a root path (stopping up to subject or lab)"""
 
-SESSION_ABSOLUTE_SPEC = f'{ROOT_SPEC}/{SESSION_SPEC}'
+SESSION_ABSOLUTE_SPEC = f'{ROOT_SPEC}{SEPARATOR}{SESSION_SPEC}'
 
-FULL_ABSOLUTE_SPEC = f'{ROOT_SPEC}/{SESSION_SPEC}/{REL_PATH_SPEC}'
+FULL_ABSOLUTE_SPEC = f'{ROOT_SPEC}{SEPARATOR}{SESSION_SPEC}{SEPARATOR}{REL_PATH_SPEC}'
 """str: The full ALF path specification pattern with a full root"""
 
-SEPARATOR = r"(?:/|\\)"
-"""Just an helper to match either unix or windows like path strings more easily"""
 
 _DEFAULT = (
     ('root', r'^[^<>\"|?*]+?'), #the root upstream of the lab/subject relative path
@@ -137,12 +145,25 @@ _DEFAULT = (
     ('extension', r'\w+')
 )
 
+_RELAXED = (
+    ('root', r'^[^<>\"|?*]+?'), #the root upstream of the lab/subject relative path
+    ('subject', r'[\w-]+'),
+    ('date', r'\d{4}-\d{2}-\d{2}'),
+    ('number', r'\d{1,3}'),
+    ('collection', r'[\w/]+'),
+    ('revision', r'[\w-]+'),  
+    ('object', r'[\w\-,;!#~&}{\]\[()]+'),
+    ('attribute', r'[\w\-,;!#~&}{\]\[()]+'),  
+    ('extra', r'[.\w-]+'),  # brackets
+    ('extension', r'\w+')
+)
+
 
 def path_pattern() -> str:
     """Returns a template string representing the where the ALF parts lie in an ALF path.
     Brackets denote optional parts.  This is used for documentation purposes only.
     """
-    return ''.join(filter(lambda c: c not in '{}?*\\$', FULL_SPEC))
+    return ''.join(filter(lambda c: c not in '{}?*\\$|', FULL_SPEC))
 
 
 def describe(part=None, width=99):
@@ -256,10 +277,10 @@ def regex(spec: str = FULL_SPEC, **kwargs) -> re.Pattern:
 
     >>> pattern = regex(object='trials')
     """
-    spec = spec.replace('/',SEPARATOR)
+    #spec = spec.replace('/',SEPARATOR)
     #change pattern to a pattern that will match all separator types (unix or windows types)
     fields = dict(_DEFAULT)
-    if not fields.keys() >= kwargs.keys():
+    if not fields.keys() >= kwargs.keys(): #if a field in kwargs doesn't exist in the _DEFAULT components
         unknown = next(k for k in kwargs.keys() if k not in fields.keys())
         raise KeyError(f'Unknown field "{unknown}"')
     fields.update({k: v for k, v in kwargs.items() if v is not None})
@@ -410,7 +431,6 @@ def to_alf(object, attribute, extension, namespace=None, timescale=None, extra=N
              extension)
     return '.'.join(parts)
 
-
 def to_full_path(subject = None,
                 date = None,
                 number = None,
@@ -433,7 +453,6 @@ def to_full_path(subject = None,
                 #UNUSED PARTS
                 lab = None,
                 ):
-    import os
     
     if session_details is not None :
         subject = session_details.subject
@@ -453,7 +472,7 @@ def to_full_path(subject = None,
     
     if not isinstance(collection, (tuple,list)):
         collection = [collection]
-    try :         
+    try :
         collection = os.path.join(*collection)
     except TypeError : #collection is [None]
         collection = ""
