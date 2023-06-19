@@ -842,24 +842,40 @@ class AlyxClient():
     def urlify_dict(self, l_result):
         keys_to_update = []
         for key, value in l_result.items():
+            if 'admin_url' in key :
+                keys_to_update.append(key)
             if isinstance(value,dict):
                 l_result[key] = self.urlify_dict(l_result[key])
-            elif 'admin_url' in key :
-                keys_to_update.append(key)
+            elif isinstance(value,list):
+                l_result[key] = self.urlify_list(l_result[key])
         for key in keys_to_update:
             l_result[key] = self.rel_path2admin_url(l_result[key])
 
         return l_result
+    
+    def urlify_list(self, l_result):
+        for index, value in enumerate(l_result):
+            if isinstance(value,dict):
+                l_result[index] = self.urlify_dict(l_result[index])
+        return l_result
 
     def urlify_paginated_response(self, l_result):
         for item in l_result :
-            yield self.urlify_dict(item)
+            if isinstance(item,list):
+                yield self.urlify_list(item)
+            elif isinstance(item,dict):
+                yield self.urlify_dict(item)
+            else :
+                raise TypeError
+            
 
     def urlify_result(self,result):
         if isinstance(result, _PaginatedResponse):
             return self.urlify_paginated_response(result)
         elif isinstance(result, dict):
             return self.urlify_dict(result)
+        elif isinstance(result, list):
+            return self.urlify_list(result)
         else :
             raise TypeError(f"HTTP Request result was not a dict nor a _PaginatedResponse but type : {type(result)}")
 

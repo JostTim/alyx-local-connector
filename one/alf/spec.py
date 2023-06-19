@@ -145,7 +145,7 @@ _DEFAULT = (
     ('extension', r'\w+')
 )
 
-_RELAXED = (
+_RELAXED_SPEC = (
     ('root', r'^[^<>\"|?*]+?'), #the root upstream of the lab/subject relative path
     ('subject', r'[\w-]+'),
     ('date', r'\d{4}-\d{2}-\d{2}'),
