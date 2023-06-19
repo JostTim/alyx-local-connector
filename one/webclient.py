@@ -232,8 +232,14 @@ class _PaginatedResponse(Mapping):
 
     def __iter__(self):
         for i in range(self.count):
-            yield self.__getitem__(i)
-
+            try :
+                yield self.__getitem__(i)
+            except requests.HTTPError as e:
+                if e.response.status_code == 404 :
+                    return #if we have 404 error :
+                           #The requested resource was not found on this server, 
+                           #we probably used a "limit" argument to the request, so we simply pass and deplete the generator
+                raise e # else we want to see the error message to check the problem
 
 def update_url_params(url: str, params: dict) -> str:
     """Add/update the query parameters of a URL and make url safe
@@ -587,7 +593,8 @@ class AlyxClient():
                 message = message.get('detail') or message  # Get details if available
             except json.decoder.JSONDecodeError:
                 message = r.text
-            raise requests.HTTPError(r.status_code, rest_query, message, response=r)
+            prout = r
+            raise requests.HTTPError(prout.status_code, rest_query, message, response=prout)
 
     def authenticate(self, username=None, password=None, cache_token=True, force=False):
         """
@@ -800,12 +807,13 @@ class AlyxClient():
         >>> url = self._validate_file_url('path/to/file')
         'https://webserver.net/path/to/file'
         """
-        if url.startswith('http'):  # A full URL
-            assert url.startswith(self._par.HTTP_DATA_SERVER), \
-                ('remote protocol and/or hostname does not match HTTP_DATA_SERVER parameter:\n' +
-                 f'"{url[:40]}..." should start with "{self._par.HTTP_DATA_SERVER}"')
-        elif not url.startswith(self._par.HTTP_DATA_SERVER):
-            url = self.rel_path2url(url)
+        # (timothé) : We don't use Web based file transfert, so i commented this part to avoid assertion errors with admin urls and such
+        # if url.startswith('http'):  # A full URL
+        #     assert url.startswith(self._par.HTTP_DATA_SERVER), \
+        #         ('remote protocol and/or hostname does not match HTTP_DATA_SERVER parameter:\n' +
+        #          f'"{url[:40]}..." should start with "{self._par.HTTP_DATA_SERVER}"')
+        # elif not url.startswith(self._par.HTTP_DATA_SERVER):
+        #     url = self.rel_path2url(url)
         return url
 
     def rel_path2url(self, path):
@@ -824,6 +832,36 @@ class AlyxClient():
         path = str(path).strip('/')
         assert not path.startswith('http')
         return f'{self._par.HTTP_DATA_SERVER}/{path}'
+    
+    def rel_path2admin_url(self,path):
+        path = str(path).strip('/')
+        if path.startswith('http') :
+            return path
+        return f'{self._par.ALYX_URL}/{path}'
+
+    def urlify_dict(self, l_result):
+        keys_to_update = []
+        for key, value in l_result.items():
+            if isinstance(value,dict):
+                l_result[key] = self.urlify_dict(l_result[key])
+            elif 'admin_url' in key :
+                keys_to_update.append(key)
+        for key in keys_to_update:
+            l_result[key] = self.rel_path2admin_url(l_result[key])
+
+        return l_result
+
+    def urlify_paginated_response(self, l_result):
+        for item in l_result :
+            yield self.urlify_dict(item)
+
+    def urlify_result(self,result):
+        if isinstance(result, _PaginatedResponse):
+            return self.urlify_paginated_response(result)
+        elif isinstance(result, dict):
+            return self.urlify_dict(result)
+        else :
+            raise TypeError(f"HTTP Request result was not a dict nor a _PaginatedResponse but type : {type(result)}")
 
     def get(self, rest_query, **kwargs):
         """
@@ -850,7 +888,7 @@ class AlyxClient():
                 rep = _PaginatedResponse(self, rep, cache_args)
             else:
                 rep = rep['results']
-        return rep
+        return self.urlify_result(rep)
 
     def patch(self, rest_query, data=None, files=None):
         """
