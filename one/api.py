@@ -51,7 +51,7 @@ def singleton(cls):
 class One(ConversionMixin):
     """An API for searching and loading data on a local filesystem"""
     _search_terms = (
-        'dataset', 'date_range', 'laboratory', 'number', 'projects', 'subject', 'task_protocol'
+        'dataset', 'date_range', 'laboratory', 'number', 'projects', 'subject', 'task_protocol','object'
     )
 
     def __init__(self, cache_dir=None, mode='auto', wildcards=True):
@@ -1787,7 +1787,7 @@ class OneAlyx(One):
         if details :
             sess_df = []
             for s in ses:
-                s = self.alyx.rest("sessions", 'read', id = s.id)
+                s = self.alyx.rest("sessions", 'read', id = s['id'])
                 s = self.to_session_details(s, as_mode = as_mode)
                 sess_df.append(s)
                 
@@ -1804,25 +1804,16 @@ class OneAlyx(One):
 
     def to_session_details(self,session_dict, as_mode = None):
 
-        def fix_url(url_input):
-            import re
-            return re.sub(r"^(https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d{1,5})?)\/(session)s(.*)$",r"\g<1>/admin/actions/\g<2>\g<3>",url_input)
-        #print(session_dict)
-        session_dict['date'] = str(datetime.fromisoformat(session_dict['start_time']).date())
-        session_dict['json'] = self.get_json_params(session_dict["id"])
-        ext_qc = self.get_extended_qc(session_dict["id"])
-        session_dict['extended_qc'] = ext_qc if ext_qc is not None else {}
-        session_dict['rel_path'] = Path(self.eid2path(session_dict["id"]))  # TODO should be renamed rel_path & check compatibility eveywhere
-        session_dict['alias_name'] = str(session_dict['rel_path']).replace("-","_").replace("\\","_")
-        session_dict['short_path'] = session_dict['rel_path']
-        try :
-            session_dict['path'] = Path(self.data_access_root(session_dict["id"],as_mode = as_mode)) / session_dict['rel_path']
-        except AttributeError:
-            warnings.warn(f"Session {session_dict['id']} has no registered file yet. Cannot get the session root into 'path' field. Skipping")
-            session_dict['path'] = None
+        #TODO : 
+        ##URGENT : NEED TO CHANGE short_path to rel_path everywhere it was used
 
-        session_dict['edit_url'] = fix_url(session_dict['url'])
+        session_dict['date'] = str(datetime.fromisoformat(session_dict['start_time']).date())
+        session_dict['extended_qc'] = session_dict['extended_qc'] if session_dict['extended_qc'] is not None else {}
+        session_dict['rel_path'] = Path(session_dict['rel_path'])
+        session_dict['local_root'] = one.params.get().LOCAL_ROOT
+
         id = session_dict.pop("id")
+
         session_details = pd.Series(session_dict,name = id)
         return session_details
 
