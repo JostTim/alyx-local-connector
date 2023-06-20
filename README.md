@@ -1,8 +1,10 @@
 # Open Neurophysiology Environment - HaissLab flavour
 
-The Open Neurophysiology Environment is a scheme for sharing neurophysiology data in a standardized manner. For information on how to share data with ONE please [click here](https://github.com/int-brain-lab/ONE/blob/main/docs/Open_Neurophysiology_Environment_Filename_Convention.pdf). This github page contains an API for searching and loading ONE-standardized data, stored either on a user’s local machine or on a remote server. Please [Click here](https://int-brain-lab.github.io/ONE/) for the main documentation page.
+The Open Neurophysiology Environment is a scheme for accessing neurophysiology data from an alyx database server, in a standardized manner. For information on how to manage file names when registering data with ONE to an alyx server, please [click here](https://github.com/int-brain-lab/ONE/blob/main/docs/Open_Neurophysiology_Environment_Filename_Convention.pdf). This github page contains an API for searching and loading ONE-standardized data, stored either on a user’s local machine or on a remote server. Please [Click here](https://int-brain-lab.github.io/ONE/) for the main documentation page.
 
-**NB**: The API and backend database are still under active development, for the best experience please regularly update the package by running `pip install -U git+https://gitlab.pasteur.fr/haisslab/data-management/ONE.git`. 
+**NB**: The API and backend database are still under active development, for the best experience please regularly update the package by running :  
+`pip install --force-reinstall --no-deps git+https://gitlab.pasteur.fr/haisslab/data-management/ONE.git`.  
+This  will force the reinstallation of the package, without the need to do a `pip uninstall ONE-api` first, and without reinstalling the dependancies like numpy etc (hence faster).
 
 ## Requirements
 ONE runs on Python 3.7 or later, and is tested on the latest Ubuntu and Windows (3.7 and 3.8 only).
