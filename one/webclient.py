@@ -925,7 +925,8 @@ class AlyxClient():
         -------
         Response object
         """
-        return self._generic_request(requests.patch, rest_query, data=data, files=files)
+        rep = self._generic_request(requests.patch, rest_query, data=data, files=files)
+        return self.urlify_result(rep)
 
     def post(self, rest_query, data=None, files=None):
         """
@@ -946,7 +947,8 @@ class AlyxClient():
         -------
         Response object
         """
-        return self._generic_request(requests.post, rest_query, data=data, files=files)
+        rep = self._generic_request(requests.post, rest_query, data=data, files=files)
+        return self.urlify_result(rep)
 
     def put(self, rest_query, data=None, files=None):
         """
@@ -968,7 +970,8 @@ class AlyxClient():
         requests.Response
             Response object
         """
-        return self._generic_request(requests.put, rest_query, data=data, files=files)
+        rep = self._generic_request(requests.put, rest_query, data=data, files=files)
+        return self.urlify_result(rep)
 
     def rest(self, url=None, action=None, id=None, data=None, files=None,
              no_cache=False, **kwargs):

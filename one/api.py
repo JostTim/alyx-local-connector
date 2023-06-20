@@ -1616,7 +1616,7 @@ class OneAlyx(One):
 
     #### LIST DATASETS
     @util.refresh
-    def list_datasets(self, eid=None, details=False, query_type=None, as_mode = None, session_details = None, **filters) -> Union[np.ndarray, pd.DataFrame]:
+    def list_datasets(self, eid=None, details=False, query_type=None, as_mode = None, session_details = None, no_cache = False,  **filters) -> Union[np.ndarray, pd.DataFrame]:
         """_summary_
 
         Args:
@@ -1641,7 +1641,8 @@ class OneAlyx(One):
                 - extension
 
                 - dataset_type
-                - name
+                - name (from dataset, ex trials.eventTimelines)
+                - file_name
 
                 - relative_path
                 - exists 
@@ -1680,7 +1681,7 @@ class OneAlyx(One):
                 ## TODO : GET BACK THE DATA FROM THE CACHE AFTER CHANGE IN DATA MANAGEMENT METHODOLOGY
                 #return super().list_datasets(eid, details=details, query_type=query_type, **filters)
     
-            session_details = self.to_session_details(self.alyx.rest('sessions', 'read', id=eid), query_type = query_type)
+            session_details = self.to_session_details(self.alyx.rest('sessions', 'read', id=eid, query_type = query_type, no_cache = no_cache))
         # session, datasets = util.ses2records(self.alyx.rest('sessions', 'read', id=eid))
         # self._update_cache_from_records(sessions=session, datasets=datasets.copy() if datasets is not None else datasets)
         # Add to cache tables # TODO : DO ADD THAT FUNCTIONNALITY AGAIN
@@ -1779,7 +1780,7 @@ class OneAlyx(One):
         return rec['session'], rec['name']
 
     #### SEARCH
-    def search(self, details=False, query_type=None, as_mode = None, **kwargs):
+    def search(self, details=False, query_type=None, as_mode = None, no_cache = False, **kwargs):
         """
         Searches sessions matching the given criteria and returns a list of matching eids
 
@@ -1840,10 +1841,10 @@ class OneAlyx(One):
             matching session
         """
 
-        query_type = query_type or self.mode
+        query_type = query_type or self.mode # we set query_type = self.mode if query_type is None
         if query_type != 'remote':
             return super().search(details=details, query_type=query_type, **kwargs)
-
+        
         # loop over input arguments and build the url
         search_terms = self.search_terms(query_type=query_type)
         params = {'django': kwargs.pop('django', '')}
@@ -1867,12 +1868,12 @@ class OneAlyx(One):
                 params[field] = value
 
         # Make GET request
-        ses = self.alyx.rest(self._search_endpoint, 'list', **params)
+        ses = self.alyx.rest(self._search_endpoint, 'list', no_cache = no_cache, query_type = query_type, **params)
         # Add date field for compatibility with One.search output
         if details :
             sess_df = []
             for s in ses:
-                s = self.alyx.rest("sessions", 'read', id = s['id'])
+                s = self.alyx.rest("sessions", 'read', id = s['id'], no_cache = no_cache, query_type = query_type)
                 s = self.to_session_details(s, as_mode = as_mode)
                 sess_df.append(s)
                 

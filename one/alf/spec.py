@@ -503,4 +503,4 @@ def to_full_path(subject = None,
                         timescale = timescale,
                         extra = extra)
     
-    return os.path.join(root,subject,date,number,collection,revision,alf_filename)
+    return os.path.normpath(os.path.join(root,subject,date,number,collection,revision,alf_filename))
