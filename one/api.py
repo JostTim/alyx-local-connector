@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from functools import lru_cache, partial, wraps
 from inspect import unwrap
 from pathlib import Path, PurePosixPath
-import os
+import os, copy
 from typing import Any, Union, Optional, List, Tuple
 from uuid import UUID
 import time
@@ -1610,11 +1610,54 @@ class OneAlyx(One):
         print(out['description'])
         return out
 
+    def change_session_data_mode(self,session_details, mode):
+        session_details["full_path"] = session_details[mode + "_full_path"]
+        return session_details
+
     #### LIST DATASETS
     @util.refresh
-    def list_datasets(self, eid=None, filename=None, collection=None, revision=None,
-                      details=False, query_type=None, as_mode = None) -> Union[np.ndarray, pd.DataFrame]:
-        filters = dict(collection=collection, filename=filename, revision=revision)
+    def list_datasets(self, eid=None, details=False, query_type=None, as_mode = None, session_details = None, **filters) -> Union[np.ndarray, pd.DataFrame]:
+        """_summary_
+
+        Args:
+            eid (str, optional): Session id (alias or pk). Does not need to be supplied only if using session_details. Defaults to None.
+            details (bool, optional): If False, will only return a list of absolute file paths (obtained from the column full_path of the dataset dataframe). 
+                Otherwise will return a full dataframe of all datasets found for this session Defaults to False.
+            query_type (str or None, optional): Wether to perform the metadata fetch (only if using eid) from local cache or on alyx. If None, uses the current mode of the connector instance. Defaults to None.
+            as_mode (str or None, optional): Wether to perform the full_path construction using default current (None), 'local' or 'remote' mode. Defaults to None.
+            session_details (pd.Series, optional): The pandas series containing data_dataset_session_related information. 
+                If not supplied, the function must be supplied a session id (eid, first argument) to get this session_details variable internally. Defaults to None.
+            
+            Other filtering keys are accepted : 
+                (the value on wich you search must match perfectly. Key must also match any of the below. key and values are case sensitive)
+                - extra
+                - object
+                - attribute
+                - subject
+                - date
+                - number
+                - revision
+                - collection
+                - extension
+
+                - dataset_type
+                - name
+
+                - relative_path
+                - exists 
+                - created_by
+                - created_datetime
+                - data_repository
+                - hash
+                - file_size
+                - tags
+
+        Raises:
+            NotImplementedError: For now, using mode (metadata) local will not work as the cache system to retrive data has not been tested for.
+
+        Returns:
+            Union[list, pd.DataFrame]: A list of matching files full_paths (if details = False) or a dataframe of all matching file records components and metadata.
+        """
         
         import natsort
         
@@ -1624,18 +1667,60 @@ class OneAlyx(One):
             else:
                 return natsort.natsorted([x])
         
-        if (query_type or self.mode) != 'remote':
-            return super().list_datasets(eid, details=details, query_type=query_type, **filters)
-        elif not eid:
-            warnings.warn('Unable to list all remote datasets')
-            return super().list_datasets(eid, details=details, query_type=query_type, **filters)
-        eid = self.to_eid(eid)  # Ensure we have a UUID str list
-        if not eid:
-            return self._cache['datasets'].iloc[0:0] if details else []  # Return empty
-        
-        session, datasets = util.ses2records(self.alyx.rest('sessions', 'read', id=eid))
-        # Add to cache tables
-        self._update_cache_from_records(sessions=session, datasets=datasets.copy() if datasets is not None else datasets)
+        # OBTAINING A SESSION_DETAILS (IN WHICH RESIDES FILES INFO)
+
+        if session_details is None :
+            _eid = eid
+            # Ensure we have a UUID str 
+            eid = self.to_eid(eid)
+            if eid is None :
+                raise ValueError(f"The session id {_eid} supplied seem to not be existing. Check that you are in 'remote' mode (not data_access_mode) and check that the session exists on a webpage.")
+            if (query_type or self.mode) != 'remote':
+                raise NotImplementedError
+                ## TODO : GET BACK THE DATA FROM THE CACHE AFTER CHANGE IN DATA MANAGEMENT METHODOLOGY
+                #return super().list_datasets(eid, details=details, query_type=query_type, **filters)
+    
+            session_details = self.to_session_details(self.alyx.rest('sessions', 'read', id=eid), query_type = query_type)
+        # session, datasets = util.ses2records(self.alyx.rest('sessions', 'read', id=eid))
+        # self._update_cache_from_records(sessions=session, datasets=datasets.copy() if datasets is not None else datasets)
+        # Add to cache tables # TODO : DO ADD THAT FUNCTIONNALITY AGAIN
+
+        datasets = copy.deepcopy(session_details.data_dataset_session_related) 
+        #copy to not change the session_details in case they are suplied by user as input
+
+        file_records = []
+        for dataset in datasets :
+            files = dataset.pop("file_records")
+            dataset["session#"] = dataset.pop("session")
+            dataset["dataset#"] = dataset.pop("id")
+            dataset["dataset_url"] = dataset.pop("url")
+            dataset["dataset_admin_url"] = dataset.pop("admin_url")
+            dataset["local_root"] = one.params.get().LOCAL_ROOT
+            for file in files :
+                #file["file_url"] = file.pop("url")
+                #file["file_admin_url"] = file.pop("admin_url")
+                file["file#"] = file.pop("id")
+                file.update({ "remote_full_path" :  os.path.normpath( os.path.join(dataset["remote_root"], file['relative_path']) ) ,
+                            "local_full_path" : os.path.normpath( os.path.join(dataset["local_root"], file['relative_path']) ) ,
+                            })
+                file["full_path"] = file[one.ONE().data_access_mode + "_full_path"] # remote or local depending on current mode
+                file.update(dataset)
+                file_records.append(file)
+
+        dataframe = pd.DataFrame(file_records).set_index(["session#","dataset#","file#"])
+
+        #FILTERING THE ROWS BASED ON USER INPUT
+        #query_string = ' & '.join([f'{k} == {repr(v)}' for k, v in filters.items()])
+        if filters :
+            query_string = ' & '.join([f"{k}.str.match('^' + {repr(v).replace('*', '.*')} + '$') "for k, v in filters.items()])
+            #query_string = ' & '.join([f"{k}.str.contains({repr(v).replace('*', '.*')})" for k, v in filters.items()])
+            try :
+                dataframe = dataframe.query(query_string, engine='python')
+            except (KeyError,pd.errors.UndefinedVariableError) as e:
+                raise KeyError(f"Cannot use the key {str(e)} to filter for datasets")
+
+        return dataframe if details else list(dataframe["full_path"])
+
         if datasets is None or datasets.empty:
             return self._cache['datasets'].iloc[0:0] if details else []  # Return empty
         datasets = util.filter_datasets(
@@ -1699,7 +1784,7 @@ class OneAlyx(One):
         Searches sessions matching the given criteria and returns a list of matching eids
 
         For a list of search terms, use the method
-
+        
             one.search_terms(query_type='remote')
 
         For all of the search parameters, a single value or list may be provided.  For dataset,
