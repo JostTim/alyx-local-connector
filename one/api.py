@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from functools import lru_cache, partial, wraps
 from inspect import unwrap
 from pathlib import Path, PurePosixPath
-import os, copy
+import os, copy, shutil
 from typing import Any, Union, Optional, List, Tuple
 from uuid import UUID
 import time
@@ -1397,7 +1397,7 @@ def ONE(*, mode='auto', wildcards=True, **kwargs):
 class OneAlyx(One):
     """An API for searching and loading data through the Alyx database"""
     def __init__(self, username=None, password=None, base_url=None, cache_dir=None,
-                 mode='auto', wildcards=True, **kwargs):
+                 mode='auto', data_access_mode = "local", wildcards=True, **kwargs):
         """An API for searching and loading data through the Alyx database
 
         Parameters
@@ -1432,34 +1432,7 @@ class OneAlyx(One):
         self._search_endpoint = 'sessions'
         # get parameters override if inputs provided
         super().__init__(mode=mode, wildcards=wildcards, cache_dir=cache_dir)
-        self.data_access_mode = "local"
-
-    def data_access_root(self, session_id = None, as_mode = None):
-        if as_mode is None :
-            data_access_mode = self.data_access_mode
-        else :
-            if not as_mode in ["local","remote"] :
-                raise ValueError("data_access_mode must be one of : 'local','remote'")
-            data_access_mode = as_mode 
-            
-        if data_access_mode == "local" :
-            return os.path.normpath(one.params.get().LOCAL_ROOT)
-        if data_access_mode == "remote" :
-            if session_id is None :
-                try : 
-                    return self.current_remote_repository_path
-                except AttributeError :
-                    raise ValueError("Must 'set_current_remote_repository' if using data_access_root without specifying the session id")
-            try : # TODO : change this with a session_repository field in the detabase, to avoid such mess.
-                first_dataset_id = self.alyx.rest("sessions","read",id = session_id)["data_dataset_session_related"][0]['id']
-                first_file_repository = self.alyx.rest("files","list",dataset = [first_dataset_id],limit = 1)[0]["data_repository"]
-            except IndexError:
-                _logger.warning(f"Session {session_id} has not registered file yet. Cannot get the session root. Using set_current_remote_repository instead")
-                
-                return self.current_remote_repository_path 
-            return self.get_data_repository_path(first_file_repository)
-        else :
-            raise NotImplementedError
+        self.data_access_mode = data_access_mode
             
     def set_data_access_mode(self, mode ):
         available_modes = ["local","remote"]# TODO : add ability to go auto mode later. (if possible, still have to think about it)
@@ -1725,33 +1698,6 @@ class OneAlyx(One):
                 raise KeyError(f"Cannot use the key {str(e)} to filter for datasets")
 
         return dataframe if details else list(dataframe["full_path"])
-
-        if datasets is None or datasets.empty:
-            return self._cache['datasets'].iloc[0:0] if details else []  # Return empty
-        datasets = util.filter_datasets(
-            datasets, assert_unique=False, wildcards=self.wildcards, **filters)
-        if datasets.empty:
-            _logger.warning("The settings you provided didn't allowed to select any dataset but there is some that are registered to this session. You may need to change the parameters")
-            return []
-        # Return only the relative path
-        
-        _logger.debug("datasets : " + str(datasets))
-        
-        ## ADD FULL PATH FILE LIST TO THE DATAFRAME (added by timothe)
-        if not "files" in datasets.columns:
-            datasets.loc[:,"files"] = None
-        column_index = datasets.columns.get_loc("files")
-        root = self.data_access_root(eid,as_mode = as_mode)
-        for index in range(len(datasets)):
-            files = self.alyx.rest("datasets","read",datasets.iloc[index].name[1])["file_records"] #datasets.iloc[index].name[1] : datasets_id idex 0 : session_id
-            filepaths = []
-            repo = self.alyx.rest("data-repository","read",files[0]["data_repository"])
-            for file in files :
-                filepaths.append(os.path.normpath(os.path.join(root,file["relative_path"])))
-            datasets.iat[index,column_index] = filepaths # adding a column 'files' containing the fullpath or all files
-                
-        #changed return details default from 'rel_path' to 'files'
-        return datasets if details else flatten_pathlist(datasets['files'].sort_values().values.tolist())
 
     @util.refresh
     def pid2eid(self, pid: str, query_type=None) -> Tuple[str, str]:
@@ -2193,7 +2139,7 @@ class OneAlyx(One):
 
     @util.refresh
     @util.parse_id
-    def eid2path(self, eid, data_repository = None , query_type=None) -> util.Listable(Path):
+    def eid2path(self, eid, query_type=None) -> util.Listable(Path):
         """
         From an experiment ID gets the local session path
 
@@ -2220,20 +2166,20 @@ class OneAlyx(One):
         # If eid is a list recurse through it and return a list
         if isinstance(eid, list):
             unwrapped = unwrap(self.path2eid)
-            return [unwrapped(self, e, data_repository = data_repository, query_type='remote') for e in eid]
+            return [unwrapped(self, e, query_type='remote') for e in eid]
 
         # if it wasn't successful, query Alyx
         ses = self.alyx.rest('sessions', 'list', django=f'pk,{eid}')
+
         if len(ses) == 0:
             return None
-        else:
-            if data_repository is None :
-                data_repository = ''
-            else :
-                data_repository = self.get_data_repository_path(data_repository)
-            
-            return os.path.join(data_repository, ses[0]['subject'], ses[0]['start_time'][:10],
-                str(ses[0]['number']).zfill(3))
+   
+        data_repository = ses[0]["default_data_repository"]
+        if data_repository is None :
+            data_repository = ''
+        
+        return os.path.join(data_repository, ses[0]['subject'], ses[0]['start_time'][:10],
+            str(ses[0]['number']).zfill(3))
 
     @util.refresh
     def path2eid(self, path_obj: Union[str, Path], query_type=None) -> util.Listable(Path):
@@ -2520,9 +2466,6 @@ class OneAlyx(One):
 
     def collection_path(self,eid,collections):
         return os.path.join(self.current_remote_repository_path, self.eid2path(eid), collections)
-        
-    #def set_current_project(self,project_name):#doing mostly the same thing for now. This would imply ther is a single repository for one full project. That may not be always the case.
-    #    self.set_current_repo(project_name)
     
     def set_current_remote_repository(self,repo_name):
         self.current_remote_repository_path = self.get_data_repository_path(repo_name)
@@ -2531,9 +2474,6 @@ class OneAlyx(One):
         import re
         subject, date, number = re.findall( r"(\w+)(?:\\|\/)(\d{4}-\d{2}-\d{2})(?:\\|\/)(\d+)" , input_path)[0]
         return {"subject":subject, "date":date, "number" : number}
-    
-    # def get_s_from_path(self,input_path):
-    #     
         
     def get_json_params(self,eid):
         return self.alyx.rest("sessions","read",eid)["json"]
@@ -2567,7 +2507,6 @@ class OneAlyx(One):
         
         data.update(kwargs)
         
- 
         _logger.info(f"Updating session {session_details.rel_path}")
         ans = input(data)
         if ans != "OK":
@@ -2576,12 +2515,6 @@ class OneAlyx(One):
         _logger.info("Applying changes")
         self.alyx.rest("sessions","partial_update", id = session_details.name,  data = data )
         self.alyx.delete_cache()
-        
-    
-
-        overwrite_policies = ["raise","skip","erase","most_recent","overwrite"]
-        if not overwrite_policy in overwrite_policies :
-            raise NotImplementedError(f"Value {overwrite_policy} for overwrite_policy is not supported. Possibilities are : {overwrite_policies}")
         
     def push_files(self, file_list, *,session_details, relative = False, overwrite_policy = "raise"):
         """
@@ -2634,8 +2567,8 @@ class OneAlyx(One):
         if not overwrite_policy in overwrite_policies :
             raise NotImplementedError(f"Value {overwrite_policy} for overwrite_policy is not supported. Possibilities are : {overwrite_policies}")
         
-        session_local_root = self.data_access_root(session_id = session_details.name, as_mode = "local")
-        session_remote_root = self.data_access_root(session_id = session_details.name, as_mode = "remote")
+        session_local_root = session_details["local_path"]
+        session_remote_root = session_details["remote_path"]
         
         if not isinstance(file_list,(list,tuple,np.ndarray)):
             file_list = [file_list]
@@ -2787,3 +2720,6 @@ class OneAlyx(One):
     #     repo_name = json.load( open(json_path,"r") )["name"]
         
     
+#overwrite_policies = ["raise","skip","erase","most_recent","overwrite"]
+ #       if not overwrite_policy in overwrite_policies :
+ #           raise NotImplementedError(f"Value {overwrite_policy} for overwrite_policy is not supported. Possibilities are : {overwrite_policies}")
