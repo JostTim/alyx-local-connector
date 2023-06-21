@@ -1670,6 +1670,8 @@ class OneAlyx(One):
         
         # OBTAINING A SESSION_DETAILS (IN WHICH RESIDES FILES INFO)
 
+        data_access_mode = as_mode or self.data_access_mode
+
         if session_details is None :
             _eid = eid
             # Ensure we have a UUID str 
@@ -1704,7 +1706,7 @@ class OneAlyx(One):
                 file.update({ "remote_full_path" :  os.path.normpath( os.path.join(dataset["remote_root"], file['relative_path']) ) ,
                             "local_full_path" : os.path.normpath( os.path.join(dataset["local_root"], file['relative_path']) ) ,
                             })
-                file["full_path"] = file[one.ONE().data_access_mode + "_full_path"] # remote or local depending on current mode
+                file["full_path"] = file[data_access_mode + "_full_path"] # remote or local depending on current mode
                 file.update(dataset)
                 file_records.append(file)
 
@@ -1892,14 +1894,15 @@ class OneAlyx(One):
 
     def to_session_details(self,session_dict, as_mode = None):
 
-        #TODO : 
-        ##URGENT : NEED TO CHANGE short_path to rel_path everywhere it was used
+        data_access_mode = as_mode or self.data_access_mode # we set data_access_mode = self.data_access_mode if as_mode is None
 
         session_dict['date'] = str(datetime.fromisoformat(session_dict['start_time']).date())
         session_dict['extended_qc'] = session_dict['extended_qc'] if session_dict['extended_qc'] is not None else {}
         session_dict['rel_path'] = Path(session_dict['rel_path'])
-        session_dict['local_root'] = one.params.get().LOCAL_ROOT
-
+        session_dict['local_path'] = one.params.get().LOCAL_ROOT 
+        session_dict['remote_path'] = session_dict['path']#path is the remote path initially (out from the database)
+        session_dict['path'] = session_dict[data_access_mode + '_path'] #we set path depending on the data_access_mode
+        
         id = session_dict.pop("id")
 
         session_details = pd.Series(session_dict,name = id)
