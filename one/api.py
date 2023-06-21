@@ -1713,6 +1713,8 @@ class OneAlyx(One):
         #FILTERING THE ROWS BASED ON USER INPUT
         #query_string = ' & '.join([f'{k} == {repr(v)}' for k, v in filters.items()])
         if filters :
+            if "filename" in filters.keys():
+                filters["file_name"] = filters.pop("filename") # allowing filename for retrocompatibility
             query_string = ' & '.join([f"{k}.str.match('^' + {repr(v).replace('*', '.*')} + '$') "for k, v in filters.items()])
             #query_string = ' & '.join([f"{k}.str.contains({repr(v).replace('*', '.*')})" for k, v in filters.items()])
             try :
