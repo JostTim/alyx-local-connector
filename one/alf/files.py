@@ -24,7 +24,7 @@ from pathlib import Path
 import logging
 
 from . import spec
-from .spec import SESSION_SPEC, COLLECTION_SPEC, FILE_SPEC, REL_PATH_SPEC, FULL_ABSOLUTE_SPEC, SESSION_ABSOLUTE_SPEC, ROOT_SPEC
+from .spec import SESSION_SPEC, COLLECTION_SPEC, FILE_SPEC, REL_PATH_SPEC, FULL_ABSOLUTE_SPEC, SESSION_ABSOLUTE_SPEC, FOLDER_SPEC , FULL_FOLDER_SPEC
 
 _logger = logging.getLogger(__name__)
 
@@ -261,10 +261,10 @@ def full_path_parts(path, as_dict=False, assert_valid=True, absolute = False) ->
     # NB We try to determine whether we have a folder or filename path.  Filenames contain at
     # least two periods, however it is currently permitted to have any number of periods in a
     # collection, making the ALF path ambiguous.
-    if sum(x == '.' for x in path.name) < 2:  # folder only
-        folders = folder_parts(path, as_dict, assert_valid, absolute = absolute)
-        dataset = filename_parts('', as_dict, assert_valid=False)
-    elif '/' not in path.as_posix():  # filename only
+    #if sum(x == '.' for x in path.name) < 2:  # folder only
+    #    folders = folder_parts(path, as_dict, assert_valid, absolute = absolute)
+    #    dataset = filename_parts('', as_dict, assert_valid=False)
+    if '/' not in path.as_posix() and '\\' not in path.as_posix():  # filename only
         folders = folder_parts('', as_dict, assert_valid=False, absolute = absolute)
         dataset = filename_parts(path.name, as_dict, assert_valid)
     else:  # full filepath
@@ -314,9 +314,10 @@ def folder_parts(folder_path, as_dict=False, assert_valid=True, absolute = False
         folder_path = folder_path.as_posix()
     if folder_path and folder_path[-1] != '/':  # Slash required for regex pattern
         folder_path = folder_path + '/'
-    spec_str = f'{SESSION_SPEC}/{COLLECTION_SPEC}'
     if absolute : 
-        spec_str = f"{ROOT_SPEC}/"+spec_str
+        spec_str = FULL_FOLDER_SPEC + "$"
+    else :
+        spec_str = FOLDER_SPEC + "$"
     return _path_parts(folder_path, spec_str, False, as_dict, assert_valid)
 
 

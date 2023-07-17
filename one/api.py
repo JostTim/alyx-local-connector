@@ -1844,11 +1844,12 @@ class OneAlyx(One):
 
         session_dict['date'] = str(datetime.fromisoformat(session_dict['start_time']).date())
         session_dict['extended_qc'] = session_dict['extended_qc'] if session_dict['extended_qc'] is not None else {}
-        session_dict['rel_path'] = Path(session_dict['rel_path'])
-        session_dict['local_path'] = one.params.get().LOCAL_ROOT 
-        session_dict['remote_path'] = session_dict['path']#path is the remote path initially (out from the database)
+        session_dict['local_path'] = os.path.normpath(os.path.join( one.params.get().LOCAL_ROOT , session_dict['rel_path'] ))
+        session_dict['remote_path'] = os.path.normpath(session_dict['path'])#path is the remote path initially (out from the database)
         session_dict['path'] = session_dict[data_access_mode + '_path'] #we set path depending on the data_access_mode
-        
+
+        session_dict['rel_path'] = Path(session_dict['rel_path'])
+
         id = session_dict.pop("id")
 
         session_details = pd.Series(session_dict,name = id)

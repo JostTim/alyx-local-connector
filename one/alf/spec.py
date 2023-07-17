@@ -99,23 +99,27 @@ SPEC_DESCRIPTION = {
 SEPARATOR = r"(?:/|\\)"
 """Just an helper to match either unix or windows like path strings more easily"""
 
-ROOT_SPEC = '^{root}'
+ROOT_SPEC = r'^{root}'
 
 #relaxing
 #SESSION_SPEC = '({lab}/Subjects/)?{subject}/{date}/{number}'
-SESSION_SPEC = '{subject}/{date}/{number}'
+SESSION_SPEC = r'{subject}{sep}{date}{sep}{number}'
 """str: The session specification pattern"""
 
-COLLECTION_SPEC = r'({collection}/)?(#{revision}#/)?'
+COLLECTION_SPEC = r'(?:{collection}{sep})?(?:#{revision}#{sep})?'
 """str: The collection and revision specification pattern"""
 
 #relaxing
 #FILE_SPEC = r'_?{namespace}?_?{object}\.{attribute}(?:_{timescale})?(?:\.{extra})*\.{extension}$'
-FILE_SPEC = r'{object}\.{attribute}(?:\.{extra})*\.{extension}$'
+FILE_SPEC = r'{object}(?:(?:\.{attribute})?(?:\.{extra})*\.{extension}?)?$'
 """str: The filename specification pattern"""
 
 REL_PATH_SPEC = f'{COLLECTION_SPEC}{FILE_SPEC}'
 """str: The collection, revision and filename specification pattern"""
+
+FOLDER_SPEC = f'{SESSION_SPEC}{SEPARATOR}{COLLECTION_SPEC}'
+
+FULL_FOLDER_SPEC = f'{ROOT_SPEC}{SEPARATOR}{SESSION_SPEC}{SEPARATOR}{COLLECTION_SPEC}'
 
 FULL_SPEC = f'{SESSION_SPEC}{SEPARATOR}{REL_PATH_SPEC}'
 """str: The full ALF path specification pattern without a root path (stopping up to subject or lab)"""
@@ -125,24 +129,22 @@ SESSION_ABSOLUTE_SPEC = f'{ROOT_SPEC}{SEPARATOR}{SESSION_SPEC}'
 FULL_ABSOLUTE_SPEC = f'{ROOT_SPEC}{SEPARATOR}{SESSION_SPEC}{SEPARATOR}{REL_PATH_SPEC}'
 """str: The full ALF path specification pattern with a full root"""
 
-
 _DEFAULT = (
-    ('root', r'^[^<>\"|?*]+?'), #the root upstream of the lab/subject relative path
+    ('root', r'^[^<>:\"|?\*]+?'), #the root upstream of the lab/subject relative path
     ('lab', r'\w+'),
-    ('subject', r'[\w-]+'),
+    ('subject', r'[^\\/<>:\"|?\*]+'),
     ('date', r'\d{4}-\d{2}-\d{2}'),
     ('number', r'\d{1,3}'),
-    ('collection', r'[\w/]+'),
-    ('revision', r'[\w-]+'),  # brackets
+    ('collection', r'[^<>:\"|?\*]+?'),
+    ('revision', r'[^\\/<>:\"|?\*]+'),  # brackets
     # to include underscores: r'(?P<namespace>(?:^_)\w+(?:_))?'
-    ('namespace', '(?<=_)[a-zA-Z0-9]+'),  # brackets
-    ('object', r'\w+'),
+    ('object', r'[^\.\\/<>:\"|?\*]+'),
     # to treat _times and _intervals as timescale: (?P<attribute>[a-zA-Z]+)_?
     # (?:_[a-z]+_)? allows attribute level namespaces (deprecated)
-    ('attribute', r'(?:_[a-z]+_)?[a-zA-Z0-9]+(?:_times(?=[_.])|_intervals(?=[_.]))?'),  # brackets
-    ('timescale', r'\w+'),  # brackets
-    ('extra', r'[.\w-]+'),  # brackets
-    ('extension', r'\w+')
+    ('attribute', r'[^\.\\/<>:\"|?\*]+'),  # brackets
+    ('extra', r'[^\\/<>:\"|?\*]+'),  # brackets
+    ('extension', r'\w+'),
+    ('sep',SEPARATOR),
 )
 
 _RELAXED_SPEC = (
@@ -279,14 +281,25 @@ def regex(spec: str = FULL_SPEC, **kwargs) -> re.Pattern:
     """
     #spec = spec.replace('/',SEPARATOR)
     #change pattern to a pattern that will match all separator types (unix or windows types)
+
+    spec_str = build_spec_str(spec, **kwargs) 
+    return re.compile(spec_str)
+
+def build_spec_str(spec: str = FULL_SPEC, **kwargs):
+
     fields = dict(_DEFAULT)
     if not fields.keys() >= kwargs.keys(): #if a field in kwargs doesn't exist in the _DEFAULT components
         unknown = next(k for k in kwargs.keys() if k not in fields.keys())
         raise KeyError(f'Unknown field "{unknown}"')
     fields.update({k: v for k, v in kwargs.items() if v is not None})
-    spec_str = spec.format(**{k: _named(fields[k], k) for k in re.findall(r'(?<={)\w+', spec)})
-    return re.compile(spec_str)
-
+    spec_dict = {}
+    for k in re.findall(r'(?<={)\w+', spec):
+        if k == 'sep' :
+            spec_dict[k] = fields[k]
+            continue
+        spec_dict[k] = _named(fields[k], k)
+    spec_str = spec.format(**spec_dict)
+    return spec_str
 
 def is_valid(filename, spec_pattern = FILE_SPEC):
     """
@@ -406,17 +419,11 @@ def to_alf(object, attribute, extension, namespace=None, timescale=None, extra=N
         raise TypeError('An extension must be provided')
     elif extension.startswith('.'):
         extension = extension[1:]
-    if re.search('_(?!times$|intervals)', attribute):
-        raise ValueError('Object attributes must not contain underscores')
     if any(pt is not None and '.' in pt for pt in
-           (object, attribute, namespace, extension, timescale)):
+           (object, attribute, extension)):
         raise ValueError('ALF parts must not contain a period (`.`)')
-    if '_' in (namespace or ''):
-        raise ValueError('Namespace must not contain extra underscores')
-    if object[0] == '_':
-        raise ValueError('Objects must not contain underscores; use namespace arg instead')
     # Ensure parts are camel case (converts whitespace and snake case)
-    object, timescale = map(_dromedary, (object, timescale))
+    #object, timescale = map(_dromedary, (object, timescale))
 
     # Optional extras may be provided as string or tuple of strings
     if not extra:
@@ -425,8 +432,8 @@ def to_alf(object, attribute, extension, namespace=None, timescale=None, extra=N
         extra = extra.split('.')
 
     # Construct ALF file
-    parts = (('_%s_' % namespace if namespace else '') + object,
-             attribute + ('_%s' % timescale if timescale else ''),
+    parts = (object,
+             attribute,
              *extra,
              extension)
     return '.'.join(parts)
@@ -449,7 +456,7 @@ def to_full_path(subject = None,
                 revision = "",
 
                 session_details = None,
-                dromedarize = True,
+                dromedarize = False,
                 #UNUSED PARTS
                 lab = None,
                 ):
