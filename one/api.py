@@ -1589,7 +1589,7 @@ class OneAlyx(One):
 
     #### LIST DATASETS
     @util.refresh
-    def list_datasets(self, eid=None, details=False, query_type=None, as_mode = None, session_details = None, no_cache = False,  **filters) -> Union[np.ndarray, pd.DataFrame]:
+    def list_datasets(self, eid=None, details=False, query_type=None, as_mode = None, no_cache = False,  **filters) -> Union[np.ndarray, pd.DataFrame]:
         """_summary_
 
         Args:
@@ -1644,8 +1644,14 @@ class OneAlyx(One):
         # OBTAINING A SESSION_DETAILS (IN WHICH RESIDES FILES INFO)
 
         data_access_mode = as_mode or self.data_access_mode
-
-        if session_details is None :
+        if hasattr(eid, "keys") and "data_dataset_session_related" in eid.keys():
+            session_details = eid.copy() #either a pd.series of dict, copy and key getters/setters works both cases
+            try :
+                eid = session_details["id"]
+            except KeyError :
+                eid = session_details.name
+            session_details["id"] = eid
+        else :
             _eid = eid
             # Ensure we have a UUID str 
             eid = self.to_eid(eid)
@@ -1661,7 +1667,7 @@ class OneAlyx(One):
         # self._update_cache_from_records(sessions=session, datasets=datasets.copy() if datasets is not None else datasets)
         # Add to cache tables # TODO : DO ADD THAT FUNCTIONNALITY AGAIN
 
-        datasets = copy.deepcopy(session_details.data_dataset_session_related) 
+        datasets = copy.deepcopy(session_details["data_dataset_session_related"]) 
         #copy to not change the session_details in case they are suplied by user as input
 
         file_records = []
