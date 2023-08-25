@@ -32,7 +32,7 @@ import one.util as util
 
 import pandas as pd
 
-_logger = logging.getLogger(__name__)
+#_logger = logging.getLogger(__name__)
 
 """int: The number of download threads"""
 N_THREADS = 4
@@ -113,6 +113,8 @@ class One(ConversionMixin):
         cache_dir : str, pathlib.Path
             An optional directory location of the parquet files, defaults to One.cache_dir.
         """
+        _logger = logging.getLogger("load_cache")
+
         self._reset_cache()
         meta = self._cache['_meta']
         INDEX_KEY = '.?id'
@@ -178,6 +180,7 @@ class One(ConversionMixin):
         force : bool
             If True, the cache is saved regardless of modification time.
         """
+        _logger = logging.getLogger("_save_cache")
         TIMEOUT = 30  # Delete lock file this many seconds after creation/modification or waiting
         lock_file = Path(self.cache_dir).joinpath('.cache.lock')
         save_dir = Path(save_dir or self.cache_dir)
@@ -225,6 +228,7 @@ class One(ConversionMixin):
         # May be instances where modified cache is saved then immediately replaced with a new
         # remote cache. Also it's too slow :(
         # self.save_cache()  # Save cache if modified
+        _logger = logging.getLogger("refresh_cache")
         if mode in ('local', 'remote'):
             pass
         elif mode == 'auto':
@@ -268,6 +272,7 @@ class One(ConversionMixin):
         KeyError
             One or more of the keyword arguments does not match a table in One._cache
         """
+        _logger = logging.getLogger("_update_cache_from_records")
         updated = None
         for table, records in kwargs.items():
             if records is None or records.empty:
@@ -527,6 +532,7 @@ class One(ConversionMixin):
         -------
         A list of file paths for the datasets (None elements for non-existent datasets)
         """
+        _logger = logging.getLogger("_check_filesystem")
         if isinstance(datasets, pd.Series):
             datasets = pd.DataFrame([datasets])
         elif not isinstance(datasets, pd.DataFrame):
@@ -1375,6 +1381,7 @@ def ONE(*, mode='auto', wildcards=True, **kwargs):
     One, OneAlyx
         An One instance if mode is 'local', otherwise an OneAlyx instance.
     """
+    _logger = logging.getLogger("ONE")
     if kwargs.pop('offline', False):
         _logger.warning('the offline kwarg will probably be removed. '
                         'ONE is now offline by default anyway')
@@ -1462,6 +1469,7 @@ class OneAlyx(One):
         tag : str
             An optional Alyx dataset tag for loading cache tables containing a subset of datasets.
         """
+        _logger = logging.getLogger("load_cache")
         cache_meta = self._cache.get('_meta', {})
         cache_dir = cache_dir or self.cache_dir
         # If user provides tag that doesn't match current cache's tag, always download.
@@ -1568,6 +1576,7 @@ class OneAlyx(One):
         dict
             The Alyx dataset type record
         """
+        _logger = logging.getLogger("describe_dataset")
         assert self.mode != 'local' and not self.offline, 'Unable to connect to Alyx in local mode'
         if not dataset_type:
             return self.alyx.rest('dataset-types', 'list')
@@ -1634,7 +1643,7 @@ class OneAlyx(One):
         """
         
         import natsort
-        
+        _logger = logging.getLogger("list_datasets")
         def flatten_pathlist(x):
             if isinstance(x,(list,tuple)):
                 return natsort.natsorted([a for i in x for a in flatten(i)])
@@ -1667,7 +1676,7 @@ class OneAlyx(One):
         # self._update_cache_from_records(sessions=session, datasets=datasets.copy() if datasets is not None else datasets)
         # Add to cache tables # TODO : DO ADD THAT FUNCTIONNALITY AGAIN
 
-        datasets = copy.deepcopy(session_details["data_dataset_session_related"]) 
+        datasets = copy.deepcopy(session_details["data_dataset_session_related"])
         #copy to not change the session_details in case they are suplied by user as input
 
         file_records = []
@@ -1689,7 +1698,12 @@ class OneAlyx(One):
                 file.update(dataset)
                 file_records.append(file)
 
-        dataframe = pd.DataFrame(file_records).set_index(["session#","dataset#","file#"])
+        dataframe = pd.DataFrame(file_records)
+        if dataframe.empty :
+            _logger.warning("No dataset found for this session. Are you sure you ran the file registration routine ?")
+            return dataframe if details else []
+
+        dataframe.set_index(["session#","dataset#","file#"])
 
         #FILTERING THE ROWS BASED ON USER INPUT
         #query_string = ' & '.join([f'{k} == {repr(v)}' for k, v in filters.items()])
@@ -1796,7 +1810,7 @@ class OneAlyx(One):
             If details is True, also returns a list of dictionaries, each entry corresponding to a
             matching session
         """
-
+        _logger = logging.getLogger("search")
         query_type = query_type or self.mode # we set query_type = self.mode if query_type is None
         if query_type != 'remote':
             return super().search(details=details, query_type=query_type, **kwargs)
@@ -1814,6 +1828,7 @@ class OneAlyx(One):
             #     params['django'] += (',' if params['django'] else '') + query
 
             elif field == 'dataset':
+                
                 _logger.warning("Beware, the dataset method seems to not be working for now. Please use dataset_types instead")
                 query = ('data_dataset_session_related__dataset_type__name__icontains,' +
                          ','.join(util.ensure_list(value)))
@@ -1879,6 +1894,7 @@ class OneAlyx(One):
              A local file path or list of paths
          """
         # If all datasets exist on AWS, download from there.
+        _logger = logging.getLogger("_download_datasets")
         try:
             if 'exists_aws' in dsets and np.all(np.equal(dsets['exists_aws'].values, True)):
                 _logger.info('Downloading from AWS')
@@ -1888,6 +1904,7 @@ class OneAlyx(One):
         return self._download_dataset(dsets, **kwargs)
 
     def _download_aws(self, dsets, update_exists=True, **_) -> List[Path]:
+        _logger = logging.getLogger("_download_aws")
         # Download datasets from AWS
         import one.remote.aws as aws
         s3, bucket_name = aws.get_s3_from_alyx(self.alyx)
@@ -1939,6 +1956,7 @@ class OneAlyx(One):
         str
             The remote URL of the dataset
         """
+        _logger = logging.getLogger("_dset2url")
         did = None
         if isinstance(dset, str) and dset.startswith('http'):
             url = dset
@@ -2106,6 +2124,7 @@ class OneAlyx(One):
         url : str
             An absolute or relative URL for a remote dataset
         """
+        _logger = logging.getLogger("_check_hash_and_file_size_mismatch")
         # verify hash size
         hash = hash or hashfile.md5(local_path)
         hash_mismatch = hash and hash != expected_hash
@@ -2163,6 +2182,7 @@ class OneAlyx(One):
         pathlib.Path, list
             A session path or list of session paths
         """
+        
         # first try avoid hitting the database
         mode = query_type or self.mode
         if mode != 'remote':
@@ -2454,6 +2474,7 @@ class OneAlyx(One):
     @staticmethod
     def explorer(path):
         import subprocess
+        path = os.path.normpath(path)
         if not os.path.exists(path):
             raise IOError(f"Path {path} does not exist")
         if os.path.isfile(path) :
@@ -2496,7 +2517,8 @@ class OneAlyx(One):
         display(Markdown(f"Session {session_details.rel_path}. {session_data_link} {metadatas_link} {uuid}"))
         
     def update_session_info(self, session_details, json = {}, extended_qc = {}, **kwargs):
-  
+        _logger = logging.getLogger("update_session_info")
+
         data = {}
         if len(json) :
             base_json = session_details.json
@@ -2515,7 +2537,7 @@ class OneAlyx(One):
         data.update(kwargs)
         
         _logger.info(f"Updating session {session_details.rel_path}")
-        ans = input(data)
+        ans = input(f"Data OK ? (OK or Cancel) : {data}")
         if ans != "OK":
             _logger.info("Aborting")
             return
