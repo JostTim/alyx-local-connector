@@ -54,7 +54,7 @@ class One(ConversionMixin):
         'dataset', 'date_range', 'laboratory', 'number', 'projects', 'subject', 'task_protocol','object'
     )
 
-    def __init__(self, cache_dir=None, mode='auto', wildcards=True):
+    def __init__(self, cache_dir=None, mode='auto', wildcards=True, data_access_mode = 'unapplicable'):
         """An API for searching and loading data on a local filesystem
 
         Parameters
@@ -1350,7 +1350,7 @@ class One(ConversionMixin):
         return One(cache_dir, mode='local')
 
 @lru_cache(maxsize=1)
-def ONE(*, mode='auto', wildcards=True, **kwargs):
+def ONE(*, mode='auto', data_access_mode = 'local', wildcards=True, **kwargs):
     """ONE API factory
     Determine which class to instantiate depending on parameters passed.
 
@@ -1359,6 +1359,11 @@ def ONE(*, mode='auto', wildcards=True, **kwargs):
     mode : str
         Query mode, options include 'auto', 'local' (offline) and 'remote' (online only).  Most
         methods have a `query_type` parameter that can override the class mode.
+    data_access_mode : str 
+        Priority mode to find files related to the sessions. 
+        Can be either :
+        - 'local', in wich case files will be searched for locally, in the folder you entered as LOCAL_DATA_FOLDER during first alyx setup to your computer.
+        - 'remote' in wich case files will be searched for based on their server location specified in alyx.
     wildcards : bool
         If true all mathods use unix shell style pattern matching, otherwise regular expressions
         are used.
@@ -1398,7 +1403,7 @@ def ONE(*, mode='auto', wildcards=True, **kwargs):
         return One(mode='local', wildcards=wildcards, **kwargs)
     except AssertionError:
         # Cache dir corresponds to a Alyx repo, call OneAlyx
-        return OneAlyx(mode=mode, wildcards=wildcards, **kwargs)
+        return OneAlyx(mode=mode, data_access_mode=data_access_mode, wildcards=wildcards, **kwargs)
 
 @singleton
 class OneAlyx(One):
