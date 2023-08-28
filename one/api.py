@@ -1386,16 +1386,12 @@ def ONE(*, mode='auto', data_access_mode = 'local', wildcards=True, **kwargs):
     One, OneAlyx
         An One instance if mode is 'local', otherwise an OneAlyx instance.
     """
+    print(data_access_mode)
     _logger = logging.getLogger("ONE")
-    if kwargs.pop('offline', False):
-        _logger.warning('the offline kwarg will probably be removed. '
-                        'ONE is now offline by default anyway')
-        warnings.warn('"offline" param will be removed; use mode="local"', DeprecationWarning)
-        mode = 'local'
 
     if (any(x in kwargs for x in ('base_url', 'username', 'password')) or
             not kwargs.get('cache_dir', False)):
-        return OneAlyx(mode=mode, wildcards=wildcards, **kwargs)
+        return OneAlyx(mode=mode, data_access_mode=data_access_mode, wildcards=wildcards, **kwargs)
 
     # If cache dir was provided and corresponds to one configured with an Alyx client, use OneAlyx
     try:
