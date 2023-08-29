@@ -1386,7 +1386,6 @@ def ONE(*, mode='auto', data_access_mode = 'local', wildcards=True, **kwargs):
     One, OneAlyx
         An One instance if mode is 'local', otherwise an OneAlyx instance.
     """
-    print(data_access_mode)
     _logger = logging.getLogger("ONE")
 
     if (any(x in kwargs for x in ('base_url', 'username', 'password')) or
