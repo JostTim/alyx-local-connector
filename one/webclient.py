@@ -593,8 +593,7 @@ class AlyxClient():
                 message = message.get('detail') or message  # Get details if available
             except json.decoder.JSONDecodeError:
                 message = r.text
-            prout = r
-            raise requests.HTTPError(prout.status_code, rest_query, message, response=prout)
+            raise requests.HTTPError(r.status_code, rest_query, message, response=r)
 
     def authenticate(self, username=None, password=None, cache_token=True, force=False):
         """

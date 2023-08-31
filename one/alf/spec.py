@@ -444,9 +444,9 @@ def to_full_path(subject = None,
                 
                 root = "",
 
-                object = None,
-                attribute = None,
-                extension = None,
+                object = "",
+                attribute = "",
+                extension = "",
 
                 extra = [""],
                 collection = [""],
@@ -502,6 +502,15 @@ def to_full_path(subject = None,
     if dromedarize :
         attribute = _dromedary(attribute)#make sure there is no underscores, replace them by Caps
         object = _dromedary(object)#make sure there is no underscores, replace them by Caps
+
+    if attribute == "":
+        attribute = None
+
+    if object == "":
+        object = None
+
+    if extension == "":
+        extension = None
 
     alf_filename = to_alf(object = object,
                         attribute = attribute,

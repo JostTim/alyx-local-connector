@@ -271,7 +271,7 @@ def full_path_parts(path, as_dict=False, assert_valid=True, absolute = False) ->
         folders = folder_parts(path.parent, as_dict, assert_valid, absolute = absolute)
         dataset = filename_parts(path.name, as_dict, assert_valid)
     if as_dict:
-        return OrderedDict(**folders, **dataset)
+        return {key : value if value is not None else "" for key, value in OrderedDict(**folders, **dataset).items()}
     else:
         return folders + dataset
 
