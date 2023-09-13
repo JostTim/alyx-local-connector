@@ -1062,7 +1062,7 @@ class AlyxClient():
             # add to url data if it is a string
             if id:
                 # this is a special case of the list where we query a uuid. Usually read is better
-                if 'django' in kwargs.keys():
+                if 'django' in kwargs.keys() and kwargs["django"] != "" :
                     kwargs['django'] = kwargs['django'] + ','
                 else:
                     kwargs['django'] = ""
