@@ -1994,7 +1994,7 @@ class OneAlyx(One):
 
     #### SEARCH
     def search(
-        self, details=False, query_type=None, as_mode=None, no_cache=False, **kwargs
+        self, id = None, *, details=False, query_type=None, as_mode=None, no_cache=False, **kwargs
     ):
         """
         Searches sessions matching the given criteria and returns a list of matching eids
@@ -2065,6 +2065,8 @@ class OneAlyx(One):
         # loop over input arguments and build the url
         search_terms = self.search_terms(query_type=query_type)
         params = {"django": kwargs.pop("django", "")}
+        if id is not None :
+            params["id"] = self.to_eid(id)
         for key, value in sorted(kwargs.items()):
             field = util.autocomplete(key, search_terms)  # Validate and get full name
             # check that the input matches one of the defined filters
