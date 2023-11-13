@@ -1994,7 +1994,14 @@ class OneAlyx(One):
 
     #### SEARCH
     def search(
-        self, id = None, *, details=False, query_type=None, as_mode=None, no_cache=False, **kwargs
+        self,
+        id=None,
+        *,
+        details=False,
+        query_type=None,
+        as_mode=None,
+        no_cache=False,
+        **kwargs,
     ):
         """
         Searches sessions matching the given criteria and returns a list of matching eids
@@ -2065,8 +2072,12 @@ class OneAlyx(One):
         # loop over input arguments and build the url
         search_terms = self.search_terms(query_type=query_type)
         params = {"django": kwargs.pop("django", "")}
-        if id is not None :
+        if id is not None:
             params["id"] = self.to_eid(id)
+            if params["id"] is None:  # this means the id we supplied is not a valid eid
+                raise ValueError(
+                    f"{id} is not a valid identifier, could not convert it to session uuid."
+                )
         for key, value in sorted(kwargs.items()):
             field = util.autocomplete(key, search_terms)  # Validate and get full name
             # check that the input matches one of the defined filters
@@ -3218,15 +3229,17 @@ class MultiSessionPlaceholder(pd.core.series.Series):
     ):
         super().__init__(*args, **kwargs)
         if data_repository is not None:
-            if data_repository == "local" :
+            if data_repository == "local":
                 data_path = one.params.get().LOCAL_ROOT
-            else :
+            else:
                 data_path = self._get_connector().alyx.rest(
                     "data-repository", "read", data_repository
                 )["data_path"]
-        if data_path == "" : 
-            raise ValueError('Data path cannot be empty string. Must either be obtained by supplying data_repository argument, or data_path directly')
-        
+        if data_path == "":
+            raise ValueError(
+                "Data path cannot be empty string. Must either be obtained by supplying data_repository argument, or data_path directly"
+            )
+
         data_path = os.path.normpath(data_path)
 
         self["rel_path"] = os.path.join("multisession", analysis_group)
