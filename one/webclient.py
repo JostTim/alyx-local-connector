@@ -1223,10 +1223,8 @@ class AlyxClient:
                             values.append(json_query)
 
                         value = ",".join(values)
-                
-                    query_params.append(
-                        (key, ",".join(map(str, ensure_list(value))))
-                    )
+
+                    query_params.append((key, ",".join(map(str, ensure_list(value)))))
 
                 # the ",".join(map(str system allows to convert all lists in query params to comma separated string list if value contains multiple elements
                 print(query_params)
