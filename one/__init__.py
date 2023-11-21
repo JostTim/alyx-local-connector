@@ -4,3 +4,4 @@ __version__ = "2.0.1"
 from . import api
 from .api import ONE
 from .params import setup
+from . import pd_accessors

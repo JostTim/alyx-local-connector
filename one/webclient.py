@@ -57,6 +57,7 @@ from iblutil.io import hashfile
 from iblutil.io.params import set_hidden
 from one.util import ensure_list
 import concurrent.futures
+
 _logger = logging.getLogger(__name__)
 
 
@@ -102,21 +103,21 @@ def _cache_response(method):
             The REST response JSON either from cached file or directly from remote
         """
         expires = expires or alyx_client.default_expiry
-        mode = (alyx_client.cache_mode or '').lower()
-        if args[0].__name__ != mode and mode != '*':
+        mode = (alyx_client.cache_mode or "").lower()
+        if args[0].__name__ != mode and mode != "*":
             return method(alyx_client, *args, **kwargs)
         # Check cache
-        rest_cache = alyx_client.cache_dir.joinpath('.rest')
+        rest_cache = alyx_client.cache_dir.joinpath(".rest")
         sha1 = hashlib.sha1()
-        sha1.update(bytes(args[1], 'utf-8'))
+        sha1.update(bytes(args[1], "utf-8"))
         name = sha1.hexdigest()
         # Reversible but length may exceed 255 chars
         # name = base64.urlsafe_b64encode(args[2].encode('UTF-8')).decode('UTF-8')
         files = list(rest_cache.glob(name))
         cached = None
         if len(files) == 1 and not clobber:
-            _logger.debug('loading REST response from cache')
-            with open(files[0], 'r') as f:
+            _logger.debug("loading REST response from cache")
+            with open(files[0], "r") as f:
                 cached, when = json.load(f)
             if datetime.fromisoformat(when) > datetime.now():
                 return cached
@@ -124,7 +125,9 @@ def _cache_response(method):
             response = method(alyx_client, *args, **kwargs)
         except requests.exceptions.ConnectionError as ex:
             if cached and not clobber:
-                warnings.warn('Failed to connect, returning cached response', RuntimeWarning)
+                warnings.warn(
+                    "Failed to connect, returning cached response", RuntimeWarning
+                )
                 return cached
             raise ex  # No cache and can't connect to database; re-raise
 
@@ -133,9 +136,9 @@ def _cache_response(method):
             rest_cache.mkdir(parents=True)
             rest_cache = set_hidden(rest_cache, True)
 
-        _logger.debug('caching REST response')
+        _logger.debug("caching REST response")
         expiry_datetime = datetime.now() + (timedelta() if expires is True else expires)
-        with open(rest_cache / name, 'w') as f:
+        with open(rest_cache / name, "w") as f:
             json.dump((response, expiry_datetime.isoformat()), f)
         return response
 
@@ -197,16 +200,16 @@ class _PaginatedResponse(Mapping):
             A dict of kwargs to pass to _cache_response decorator upon subsequent requests
         """
         self.alyx = alyx
-        self.count = rep['count']
-        self.limit = len(rep['results'])
+        self.count = rep["count"]
+        self.limit = len(rep["results"])
         self._cache_args = cache_args or {}
         # store URL without pagination query params
-        self.query = rep['next']
+        self.query = rep["next"]
         # init the cache, list with None with count size
         self._cache = [None] * self.count
         # fill the cache with results of the query
         for i in range(self.limit):
-            self._cache[i] = rep['results'][i]
+            self._cache[i] = rep["results"][i]
 
     def __len__(self):
         return self.count
@@ -221,25 +224,28 @@ class _PaginatedResponse(Mapping):
 
     def populate(self, idx):
         offset = self.limit * math.floor(idx / self.limit)
-        query = update_url_params(self.query, {'limit': self.limit, 'offset': offset})
+        query = update_url_params(self.query, {"limit": self.limit, "offset": offset})
         res = self.alyx._generic_request(requests.get, query, **self._cache_args)
-        if self.count != res['count']:
+        if self.count != res["count"]:
             warnings.warn(
-                f'remote results for {urllib.parse.urlsplit(query).path} endpoint changed; '
-                f'results may be inconsistent', RuntimeWarning)
-        for i, r in enumerate(res['results'][:self.count - offset]):
-            self._cache[i + offset] = res['results'][i]
+                f"remote results for {urllib.parse.urlsplit(query).path} endpoint changed; "
+                f"results may be inconsistent",
+                RuntimeWarning,
+            )
+        for i, r in enumerate(res["results"][: self.count - offset]):
+            self._cache[i + offset] = res["results"][i]
 
     def __iter__(self):
         for i in range(self.count):
-            try :
+            try:
                 yield self.__getitem__(i)
             except requests.HTTPError as e:
-                if e.response.status_code == 404 :
-                    return #if we have 404 error :
-                           #The requested resource was not found on this server, 
-                           #we probably used a "limit" argument to the request, so we simply pass and deplete the generator
-                raise e # else we want to see the error message to check the problem
+                if e.response.status_code == 404:
+                    return  # if we have 404 error :
+                    # The requested resource was not found on this server,
+                    # we probably used a "limit" argument to the request, so we simply pass and deplete the generator
+                raise e  # else we want to see the error message to check the problem
+
 
 def update_url_params(url: str, params: dict) -> str:
     """Add/update the query parameters of a URL and make url safe
@@ -271,6 +277,23 @@ def update_url_params(url: str, params: dict) -> str:
     parsed_get_args = urllib.parse.parse_qs(parsed_url.query, keep_blank_values=False)
     # Merge URL arguments dict with new params
     parsed_get_args.update(params)
+    print(parsed_get_args)
+    # Convert back to query string
+    encoded_get_args = urllib.parse.urlencode(parsed_get_args, doseq=True)
+    # Update parser and convert to full URL str
+    return parsed_url._replace(query=encoded_get_args).geturl()
+
+
+def update_url_listparams(url: str, params: list) -> str:
+    # Remove percent-encoding
+    url = urllib.parse.unquote(url)
+    parsed_url = urllib.parse.urlsplit(url)
+
+    # Extract URL query arguments, merge with existing params
+    parsed_get_args = urllib.parse.parse_qsl(parsed_url.query, keep_blank_values=False)
+    parsed_get_args += params
+    print(parsed_get_args)
+
     # Convert back to query string
     encoded_get_args = urllib.parse.urlencode(parsed_get_args, doseq=True)
     # Update parser and convert to full URL str
@@ -298,7 +321,7 @@ def http_download_file_list(links_to_file_list, **kwargs):
     links_to_file_list = list(links_to_file_list)  # In case generator was passed
     n_threads = 4  # Max number of threads
     outputs = []
-    target_dir = kwargs.pop('target_dir', None)
+    target_dir = kwargs.pop("target_dir", None)
     # Ensure target dir the length of url list
     if target_dir is None or isinstance(target_dir, (str, Path)):
         target_dir = [target_dir] * len(links_to_file_list)
@@ -307,9 +330,11 @@ def http_download_file_list(links_to_file_list, **kwargs):
     zipped = zip(links_to_file_list, target_dir)
     with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as executor:
         # Multithreading load operations
-        futures = [executor.submit(
-            http_download_file, link, target_dir=target, **kwargs) for link, target in zipped]
-        zip(links_to_file_list, ensure_list(kwargs.pop('target_dir', None)))
+        futures = [
+            executor.submit(http_download_file, link, target_dir=target, **kwargs)
+            for link, target in zipped
+        ]
+        zip(links_to_file_list, ensure_list(kwargs.pop("target_dir", None)))
         # TODO Reintroduce variable timeout value based on file size and download speed of 5 Mb/s?
         # timeout = reduce(lambda x, y: x + (y.get('file_size', 0) or 0), dsets, 0) / 625000 ?
         concurrent.futures.wait(futures, timeout=None)
@@ -317,11 +342,21 @@ def http_download_file_list(links_to_file_list, **kwargs):
         for future in futures:
             outputs.append(future.result())
     # if returning md5, separate list of tuples into two lists: (files, md5)
-    return list(zip(*outputs)) if kwargs.get('return_md5', False) else outputs
+    return list(zip(*outputs)) if kwargs.get("return_md5", False) else outputs
 
 
-def http_download_file(full_link_to_file, chunks=None, *, clobber=False, silent=False,
-                       username='', password='', target_dir='', return_md5=False, headers=None):
+def http_download_file(
+    full_link_to_file,
+    chunks=None,
+    *,
+    clobber=False,
+    silent=False,
+    username="",
+    password="",
+    target_dir="",
+    return_md5=False,
+    headers=None,
+):
     """
     Download a file from a remote HTTP server.
 
@@ -360,7 +395,7 @@ def http_download_file(full_link_to_file, chunks=None, *, clobber=False, silent=
 
     # default cache directory is the home dir
     if not target_dir:
-        target_dir = str(Path.home().joinpath('Downloads'))
+        target_dir = str(Path.home().joinpath("Downloads"))
 
     # This is the local file name
     file_name = str(target_dir) + os.sep + os.path.basename(full_link_to_file)
@@ -388,7 +423,7 @@ def http_download_file(full_link_to_file, chunks=None, *, clobber=False, silent=
     req = urllib.request.Request(full_link_to_file)
     if chunks is not None:
         first_byte, n_bytes = chunks
-        req.add_header('Range', 'bytes=%d-%d' % (first_byte, first_byte + n_bytes - 1))
+        req.add_header("Range", "bytes=%d-%d" % (first_byte, first_byte + n_bytes - 1))
 
     # add additional headers
     if headers is not None:
@@ -399,16 +434,16 @@ def http_download_file(full_link_to_file, chunks=None, *, clobber=False, silent=
     try:
         u = urllib.request.urlopen(req)
     except HTTPError as e:
-        _logger.error(f'{str(e)} {full_link_to_file}')
+        _logger.error(f"{str(e)} {full_link_to_file}")
         raise e
 
-    file_size = int(u.getheader('Content-length'))
+    file_size = int(u.getheader("Content-length"))
     if not silent:
-        print(f'Downloading: {file_name} Bytes: {file_size}')
+        print(f"Downloading: {file_name} Bytes: {file_size}")
     block_sz = 8192 * 64 * 8
 
     md5 = hashlib.md5()
-    f = open(file_name, 'wb')
+    f = open(file_name, "wb")
     with tqdm(total=file_size / 1024 / 1024, disable=silent) as pbar:
         while True:
             buffer = u.read(block_sz)
@@ -439,8 +474,8 @@ def file_record_to_url(file_records) -> list:
     """
     urls = []
     for fr in file_records:
-        if fr['data_url'] is not None:
-            urls.append(fr['data_url'])
+        if fr["data_url"] is not None:
+            urls.append(fr["data_url"])
     return urls
 
 
@@ -462,15 +497,16 @@ def dataset_record_to_url(dataset_record) -> list:
     if isinstance(dataset_record, dict):
         dataset_record = [dataset_record]
     for ds in dataset_record:
-        urls += file_record_to_url(ds['file_records'])
+        urls += file_record_to_url(ds["file_records"])
     return urls
 
 
-class AlyxClient():
+class AlyxClient:
     """
     Class that implements simple GET/POST wrappers for the Alyx REST API.
     See https://openalyx.internationalbrainlab.org/docs
     """
+
     _token = None
     _headers = None  # Headers for REST requests only
     """str: The Alyx username"""
@@ -478,8 +514,15 @@ class AlyxClient():
     """str: The Alyx database URL"""
     base_url = None
 
-    def __init__(self, base_url=None, username=None, password=None,
-                 cache_dir=None, silent=False, cache_rest='GET'):
+    def __init__(
+        self,
+        base_url=None,
+        username=None,
+        password=None,
+        cache_dir=None,
+        silent=False,
+        cache_rest="GET",
+    ):
         """
         Create a client instance that allows to GET and POST to the Alyx server.
         For One, constructor attempts to authenticate with credentials in params.py.
@@ -503,14 +546,16 @@ class AlyxClient():
             If true, auth token is cached
         """
         self.silent = silent
-        self._par = one.params.get(client=base_url, silent=self.silent, username=username)
+        self._par = one.params.get(
+            client=base_url, silent=self.silent, username=username
+        )
         self.base_url = base_url or self._par.ALYX_URL
-        self._par = self._par.set('CACHE_DIR', cache_dir or self._par.CACHE_DIR)
+        self._par = self._par.set("CACHE_DIR", cache_dir or self._par.CACHE_DIR)
         if username or password:
             self.authenticate(username, password)
         self._rest_schemes = None
         # the mixed accept application may cause errors sometimes, only necessary for the docs
-        self._headers = {**(self._headers or {}), 'Accept': 'application/json'}
+        self._headers = {**(self._headers or {}), "Accept": "application/json"}
         # REST cache parameters
         # The default length of time that cache file is valid for,
         # The default expiry is overridden by the `expires` kwarg.  If False, the caching is
@@ -524,7 +569,7 @@ class AlyxClient():
         """dict: The REST endpoints and their parameters"""
         # Delayed fetch of rest schemes speeds up instantiation
         if not self._rest_schemes:
-            self._rest_schemes = self.get('/docs', expires=timedelta(weeks=1))
+            self._rest_schemes = self.get("/docs", expires=timedelta(weeks=1))
         return self._rest_schemes
 
     @property
@@ -534,14 +579,19 @@ class AlyxClient():
 
     def delete_cache(self):
         """Delete all cached files in the .rest directory of your ONE installation (usually located in ONE inside downloads)"""
-        cache_dir = self.cache_dir.joinpath('.rest')
+        cache_dir = self.cache_dir.joinpath(".rest")
         for item in os.listdir(cache_dir):
-            os.remove(os.path.join(cache_dir,item))
+            os.remove(os.path.join(cache_dir, item))
 
     @property
     def is_logged_in(self):
         """bool: Check if user logged into Alyx database; True if user is authenticated"""
-        return self._token and self.user and self._headers and 'Authorization' in self._headers
+        return (
+            self._token
+            and self.user
+            and self._headers
+            and "Authorization" in self._headers
+        )
 
     def list_endpoints(self):
         """
@@ -551,46 +601,63 @@ class AlyxClient():
         -------
             List of REST endpoint strings
         """
-        EXCLUDE = ('_type', '_meta', '', 'auth-token')
+        EXCLUDE = ("_type", "_meta", "", "auth-token")
         return sorted(x for x in self.rest_schemes.keys() if x not in EXCLUDE)
 
     @_cache_response
     def _generic_request(self, reqfunction, rest_query, data=None, files=None):
-        if not self._token and (not self._headers or 'Authorization' not in self._headers):
+        if not self._token and (
+            not self._headers or "Authorization" not in self._headers
+        ):
             self.authenticate(username=self.user)
         # makes sure the base url is the one from the instance
-        rest_query = rest_query.replace(self.base_url, '')
-        if not rest_query.startswith('/'):
-            rest_query = '/' + rest_query
+        rest_query = rest_query.replace(self.base_url, "")
+        if not rest_query.startswith("/"):
+            rest_query = "/" + rest_query
         _logger.debug(f"{self.base_url + rest_query}, headers: {self._headers}")
         headers = self._headers.copy()
         if files is None:
-            data = json.dumps(data) if isinstance(data, dict) or isinstance(data, list) else data
-            headers['Content-Type'] = 'application/json'
-        if rest_query.startswith('/docs'):
+            data = (
+                json.dumps(data)
+                if isinstance(data, dict) or isinstance(data, list)
+                else data
+            )
+            headers["Content-Type"] = "application/json"
+        if rest_query.startswith("/docs"):
             # the mixed accept application may cause errors sometimes, only necessary for the docs
-            headers['Accept'] = 'application/coreapi+json'
-        r = reqfunction(self.base_url + rest_query,
-                        stream=True, headers=headers, data=data, files=files)
+            headers["Accept"] = "application/coreapi+json"
+        r = reqfunction(
+            self.base_url + rest_query,
+            stream=True,
+            headers=headers,
+            data=data,
+            files=files,
+        )
         if r and r.status_code in (200, 201):
             return json.loads(r.text)
         elif r and r.status_code == 204:
             return
         if r.status_code == 403 and '"Invalid token."' in r.text:
-            _logger.debug('Token invalid; Attempting to re-authenticate...')
+            _logger.debug("Token invalid; Attempting to re-authenticate...")
             # Log out in order to flush stale token.  At this point we no longer have the password
             # but if the user re-instantiates with a password arg it will request a new token.
             username = self.user
-            if self.silent:  # no need to log out otherwise; user will be prompted for password
+            if (
+                self.silent
+            ):  # no need to log out otherwise; user will be prompted for password
                 self.logout()
             self.authenticate(username=username, force=True)
-            return self._generic_request(reqfunction, rest_query, data=data, files=files)
+            return self._generic_request(
+                reqfunction, rest_query, data=data, files=files
+            )
         else:
-            _logger.debug('Response text: ' + r.text)
+            _logger.debug("Response text: " + r.text)
             try:
                 message = json.loads(r.text)
-                message.pop('status_code', None)  # Get status code from response object instead
-                message = message.get('detail') or message  # Get details if available
+                message.pop(
+                    "status_code", None
+                )  # Get status code from response object instead
+                message = message.get("detail") or message  # Get details if available
             except json.decoder.JSONDecodeError:
                 message = r.text
             raise requests.HTTPError(r.status_code, rest_query, message, response=r)
@@ -613,56 +680,70 @@ class AlyxClient():
         """
         # Get username
         if username is None:
-            username = getattr(self._par, 'ALYX_LOGIN', self.user)
+            username = getattr(self._par, "ALYX_LOGIN", self.user)
         if username is None and not self.silent:
-            username = input('Enter Alyx username:')
+            username = input("Enter Alyx username:")
 
         # Check if token cached
-        if not force and getattr(self._par, 'TOKEN', False) and username in self._par.TOKEN:
+        if (
+            not force
+            and getattr(self._par, "TOKEN", False)
+            and username in self._par.TOKEN
+        ):
             self._token = self._par.TOKEN[username]
             self._headers = {
-                'Authorization': f'Token {list(self._token.values())[0]}',
-                'Accept': 'application/json'}
+                "Authorization": f"Token {list(self._token.values())[0]}",
+                "Accept": "application/json",
+            }
             self.user = username
             return
 
         # Get password
         if password is None:
-            password = getattr(self._par, 'ALYX_PWD', None)
+            password = getattr(self._par, "ALYX_PWD", None)
         if password is None and not self.silent:
             password = getpass(f'Enter Alyx password for "{username}":')
         try:
-            credentials = {'username': username, 'password': password}
-            rep = requests.post(self.base_url + '/auth-token', data=credentials)
+            credentials = {"username": username, "password": password}
+            rep = requests.post(self.base_url + "/auth-token", data=credentials)
         except requests.exceptions.ConnectionError:
             raise ConnectionError(
-                f"Can't connect to {self.base_url}.\n" +
-                "Check your internet connections and Alyx database firewall"
+                f"Can't connect to {self.base_url}.\n"
+                + "Check your internet connections and Alyx database firewall"
             )
         # Assign token or raise exception on auth error
         if rep.ok:
             self._token = rep.json()
-            assert list(self._token.keys()) == ['token']
+            assert list(self._token.keys()) == ["token"]
         else:
             if rep.status_code == 400:  # Auth error; re-raise with details
-                redacted = '*' * len(credentials['password']) if credentials['password'] else None
-                message = ('Alyx authentication failed with credentials: '
-                           f'user = {credentials["username"]}, password = {redacted}')
-                raise requests.HTTPError(rep.status_code, rep.url, message, response=rep)
+                redacted = (
+                    "*" * len(credentials["password"])
+                    if credentials["password"]
+                    else None
+                )
+                message = (
+                    "Alyx authentication failed with credentials: "
+                    f'user = {credentials["username"]}, password = {redacted}'
+                )
+                raise requests.HTTPError(
+                    rep.status_code, rep.url, message, response=rep
+                )
             else:
                 rep.raise_for_status()
 
         self._headers = {
-            'Authorization': 'Token {}'.format(list(self._token.values())[0]),
-            'Accept': 'application/json'}
+            "Authorization": "Token {}".format(list(self._token.values())[0]),
+            "Accept": "application/json",
+        }
         if cache_token:
             # Update saved pars
             par = one.params.get(client=self.base_url, silent=True)
-            tokens = getattr(par, 'TOKEN', {})
+            tokens = getattr(par, "TOKEN", {})
             tokens[username] = self._token
-            one.params.save(par.set('TOKEN', tokens), self.base_url)
+            one.params.save(par.set("TOKEN", tokens), self.base_url)
             # Update current pars
-            self._par = self._par.set('TOKEN', tokens)
+            self._par = self._par.set("TOKEN", tokens)
         self.user = username
         if not self.silent:
             print(f"Connected to {self.base_url} as {self.user}")
@@ -676,20 +757,20 @@ class AlyxClient():
         par = one.params.get(client=self.base_url, silent=True)
         username = self.user
         # Remove token from cache
-        if getattr(par, 'TOKEN', False) and username in par.TOKEN:
+        if getattr(par, "TOKEN", False) and username in par.TOKEN:
             del par.TOKEN[username]
             one.params.save(par, self.base_url)
         # Remove token from local pars
-        if getattr(self._par, 'TOKEN', False) and username in self._par.TOKEN:
+        if getattr(self._par, "TOKEN", False) and username in self._par.TOKEN:
             del self._par.TOKEN[username]
         # Remove token from object
         self.user = None
         self._token = None
-        if self._headers and 'Authorization' in self._headers:
-            del self._headers['Authorization']
+        if self._headers and "Authorization" in self._headers:
+            del self._headers["Authorization"]
         self.clear_rest_cache()
         if not self.silent:
-            print(f'{username} logged out from {self.base_url}')
+            print(f"{username} logged out from {self.base_url}")
 
     def delete(self, rest_query):
         """
@@ -736,18 +817,20 @@ class AlyxClient():
             url = (self._validate_file_url(x) for x in url)
             download_fcn = http_download_file_list
         pars = dict(
-            silent=kwargs.pop('silent', self.silent),
-            target_dir=kwargs.pop('target_dir', self._par.CACHE_DIR),
+            silent=kwargs.pop("silent", self.silent),
+            target_dir=kwargs.pop("target_dir", self._par.CACHE_DIR),
             username=self._par.HTTP_DATA_SERVER_LOGIN,
             password=self._par.HTTP_DATA_SERVER_PWD,
-            **kwargs
+            **kwargs,
         )
         try:
             files = download_fcn(url, **pars)
         except HTTPError as ex:
             if ex.code == 401:
-                ex.msg += (' - please check your HTTP_DATA_SERVER_LOGIN and '
-                           'HTTP_DATA_SERVER_PWD ONE params, or username/password kwargs')
+                ex.msg += (
+                    " - please check your HTTP_DATA_SERVER_LOGIN and "
+                    "HTTP_DATA_SERVER_PWD ONE params, or username/password kwargs"
+                )
             raise ex
         return files
 
@@ -770,17 +853,19 @@ class AlyxClient():
         self.cache_dir.mkdir(exist_ok=True)
         if not self.is_logged_in:
             self.authenticate()
-        source = str(source or f'{self.base_url}/cache.zip')
+        source = str(source or f"{self.base_url}/cache.zip")
         destination = destination or self.cache_dir
 
         headers = self._headers if source.startswith(self.base_url) else None
         with tempfile.TemporaryDirectory(dir=destination) as tmp:
-            file = http_download_file(source,
-                                      headers=headers,
-                                      silent=self.silent,
-                                      target_dir=tmp,
-                                      clobber=True)
-            with zipfile.ZipFile(file, 'r') as zipped:
+            file = http_download_file(
+                source,
+                headers=headers,
+                silent=self.silent,
+                target_dir=tmp,
+                clobber=True,
+            )
+            with zipfile.ZipFile(file, "r") as zipped:
                 files = zipped.namelist()
                 zipped.extractall(destination)
         return [Path(destination, table) for table in files]
@@ -828,55 +913,56 @@ class AlyxClient():
         -------
             A URL string
         """
-        path = str(path).strip('/')
-        assert not path.startswith('http')
-        return f'{self._par.HTTP_DATA_SERVER}/{path}'
-    
-    def rel_path2admin_url(self,path):
-        path = str(path).strip('/')
-        if path.startswith('http') :
+        path = str(path).strip("/")
+        assert not path.startswith("http")
+        return f"{self._par.HTTP_DATA_SERVER}/{path}"
+
+    def rel_path2admin_url(self, path):
+        path = str(path).strip("/")
+        if path.startswith("http"):
             return path
-        return f'{self._par.ALYX_URL}/{path}'
+        return f"{self._par.ALYX_URL}/{path}"
 
     def urlify_dict(self, l_result):
         keys_to_update = []
         for key, value in l_result.items():
-            if 'admin_url' in key :
+            if "admin_url" in key:
                 keys_to_update.append(key)
-            if isinstance(value,dict):
+            if isinstance(value, dict):
                 l_result[key] = self.urlify_dict(l_result[key])
-            elif isinstance(value,list):
+            elif isinstance(value, list):
                 l_result[key] = self.urlify_list(l_result[key])
         for key in keys_to_update:
             l_result[key] = self.rel_path2admin_url(l_result[key])
 
         return l_result
-    
+
     def urlify_list(self, l_result):
         for index, value in enumerate(l_result):
-            if isinstance(value,dict):
+            if isinstance(value, dict):
                 l_result[index] = self.urlify_dict(l_result[index])
         return l_result
 
     def urlify_paginated_response(self, l_result):
-        for item in l_result :
-            if isinstance(item,list):
+        for item in l_result:
+            if isinstance(item, list):
                 yield self.urlify_list(item)
-            elif isinstance(item,dict):
+            elif isinstance(item, dict):
                 yield self.urlify_dict(item)
-            else :
+            else:
                 raise TypeError
-            
 
-    def urlify_result(self,result):
+    def urlify_result(self, result):
         if isinstance(result, _PaginatedResponse):
             return self.urlify_paginated_response(result)
         elif isinstance(result, dict):
             return self.urlify_dict(result)
         elif isinstance(result, list):
             return self.urlify_list(result)
-        else :
-            raise TypeError(f"HTTP Request result was not a dict nor a _PaginatedResponse but type : {type(result)}")
+        else:
+            raise TypeError(
+                f"HTTP Request result was not a dict nor a _PaginatedResponse but type : {type(result)}"
+            )
 
     def get(self, rest_query, **kwargs):
         """
@@ -897,12 +983,19 @@ class AlyxClient():
         JSON interpreted dictionary from response
         """
         rep = self._generic_request(requests.get, rest_query, **kwargs)
-        if isinstance(rep, dict) and list(rep.keys()) == ['count', 'next', 'previous', 'results']:
-            if len(rep['results']) < rep['count']:
-                cache_args = {k: v for k, v in kwargs.items() if k in ('clobber', 'expires')}
+        if isinstance(rep, dict) and list(rep.keys()) == [
+            "count",
+            "next",
+            "previous",
+            "results",
+        ]:
+            if len(rep["results"]) < rep["count"]:
+                cache_args = {
+                    k: v for k, v in kwargs.items() if k in ("clobber", "expires")
+                }
                 rep = _PaginatedResponse(self, rep, cache_args)
             else:
-                rep = rep['results']
+                rep = rep["results"]
         return self.urlify_result(rep)
 
     def patch(self, rest_query, data=None, files=None):
@@ -972,8 +1065,16 @@ class AlyxClient():
         rep = self._generic_request(requests.put, rest_query, data=data, files=files)
         return self.urlify_result(rep)
 
-    def rest(self, url=None, action=None, id=None, data=None, files=None,
-             no_cache=False, **kwargs):
+    def rest(
+        self,
+        url=None,
+        action=None,
+        id=None,
+        data=None,
+        files=None,
+        no_cache=False,
+        **kwargs,
+    ):
         """
         alyx_client.rest(): lists endpoints
         alyx_client.rest(endpoint): lists actions for endpoint
@@ -1014,99 +1115,168 @@ class AlyxClient():
         list, dict
             List of queried dicts ('list') or dict (other actions)
         """
+
+        def get_values_key_chain(dictionary, keys=[]):
+            # this function takes as input a dict, with arbitrary nested values,
+            # and outputs a list of tuples containing a value, and the ordered list of nested keys to find them.
+            pairs = []
+            for key, value in dictionary.items():
+                if isinstance(value, dict):
+                    pairs.extend(get_values_key_chain(value, keys + [key]))
+                else:
+                    pairs.append((value, keys + [key]))
+            return pairs
+
         # if endpoint is None, list available endpoints
         if not url:
             pprint(self.list_endpoints())
             return
         # remove beginning slash if any
-        if url.startswith('/'):
+        if url.startswith("/"):
             url = url[1:]
         # and split to the next slash or question mark
-        endpoint = re.findall("^/*[^?/]*", url)[0].replace('/', '')
+        endpoint = re.findall("^/*[^?/]*", url)[0].replace("/", "")
         # make sure the queried endpoint exists, if not throw an informative error
         if endpoint not in self.rest_schemes.keys():
-            av = [k for k in self.rest_schemes.keys() if not k.startswith('_') and k]
-            raise ValueError('REST endpoint "' + endpoint + '" does not exist. Available ' +
-                             'endpoints are \n       ' + '\n       '.join(av))
+            av = [k for k in self.rest_schemes.keys() if not k.startswith("_") and k]
+            raise ValueError(
+                'REST endpoint "'
+                + endpoint
+                + '" does not exist. Available '
+                + "endpoints are \n       "
+                + "\n       ".join(av)
+            )
         endpoint_scheme = self.rest_schemes[endpoint]
         # on a filter request, override the default action parameter
-        if '?' in url:
-            action = 'list'
+        if "?" in url:
+            action = "list"
         # if action is None, list available actions for the required endpoint
         if not action:
             pprint(list(endpoint_scheme.keys()))
             return
         # make sure the the desired action exists, if not throw an informative error
         if action not in endpoint_scheme:
-            raise ValueError('Action "' + action + '" for REST endpoint "' + endpoint + '" does ' +
-                             'not exist. Available actions are: ' +
-                             '\n       ' + '\n       '.join(endpoint_scheme.keys()))
+            raise ValueError(
+                'Action "'
+                + action
+                + '" for REST endpoint "'
+                + endpoint
+                + '" does '
+                + "not exist. Available actions are: "
+                + "\n       "
+                + "\n       ".join(endpoint_scheme.keys())
+            )
         # the actions below require an id in the URL, warn and help the user
-        if action in ['read', 'update', 'partial_update', 'delete'] and not id:
-            _logger.warning('REST action "' + action + '" requires an ID in the URL: ' +
-                            endpoint_scheme[action]['url'])
+        if action in ["read", "update", "partial_update", "delete"] and not id:
+            _logger.warning(
+                'REST action "'
+                + action
+                + '" requires an ID in the URL: '
+                + endpoint_scheme[action]["url"]
+            )
             return
         # the actions below require a data dictionary, warn and help the user with fields list
-        if action in ['create', 'update', 'partial_update'] and not data:
-            pprint(endpoint_scheme[action]['fields'])
-            for act in endpoint_scheme[action]['fields']:
-                print("'" + act['name'] + "': ...,")
-            _logger.warning('REST action "' + action + '" requires a data dict with above keys')
+        if action in ["create", "update", "partial_update"] and not data:
+            pprint(endpoint_scheme[action]["fields"])
+            for act in endpoint_scheme[action]["fields"]:
+                print("'" + act["name"] + "': ...,")
+            _logger.warning(
+                'REST action "' + action + '" requires a data dict with above keys'
+            )
             return
 
         # clobber=True means remote request always made, expires=True means response is not cached
-        cache_args = {'clobber': no_cache, 'expires': kwargs.pop('expires', False) or no_cache}
-        if action == 'list':
+        cache_args = {
+            "clobber": no_cache,
+            "expires": kwargs.pop("expires", False) or no_cache,
+        }
+        if action == "list":
             # list doesn't require id nor
-            assert endpoint_scheme[action]['action'] == 'get'
+            assert endpoint_scheme[action]["action"] == "get"
             # add to url data if it is a string
             if id:
                 # this is a special case of the list where we query a uuid. Usually read is better
-                if 'django' in kwargs.keys() and kwargs["django"] != "" :
-                    kwargs['django'] = kwargs['django'] + ','
+                if "django" in kwargs.keys() and kwargs["django"] != "":
+                    kwargs["django"] = kwargs["django"] + ","
                 else:
-                    kwargs['django'] = ""
-                kwargs['django'] = f"{kwargs['django']}pk,{id}"
+                    kwargs["django"] = ""
+                # kwargs["django"] = f"{kwargs['django']}pk,{id}"
+                # we remove all other filters from kwargs, as selecting by id is already all or none
+                if len(
+                    excedent_keys := [key for key in kwargs.keys() if key != "django"]
+                ):
+                    _logger.warning(
+                        f"Some fields, {excedent_keys} have been supplied by the user, but an id is present in the list search. These fields have been discarded."
+                    )
+                    # if there is any other filter, we send a warning
+                kwargs = {"django": f"{kwargs['django']}pk,{id}"}
             # otherwise, look for a dictionary of filter terms
             if kwargs:
-                # Convert all lists in query params to comma separated list
-                query_params = {k: ','.join(map(str, ensure_list(v))) for k, v in kwargs.items()}
-                url = update_url_params(url, query_params)
-            #print(url)
-            return self.get('/' + url, **cache_args)
+                query_params = []
+                for key, value in kwargs.items():
+                    # we found a json based filtering, so we assume the key is a json field.
+                    if isinstance(value, dict):
+                        values_keys = get_values_key_chain(value)
+                        values = []
+                        for json_value, json_chain_keys in values_keys:
+                            json_query = f"{'__'.join(json_chain_keys)},{json_value}"
+                            values.append(json_query)
+
+                        value = ",".join(values)
+                
+                    query_params.append(
+                        (key, ",".join(map(str, ensure_list(value))))
+                    )
+
+                # the ",".join(map(str system allows to convert all lists in query params to comma separated string list if value contains multiple elements
+                print(query_params)
+
+                url = update_url_listparams(url, query_params)
+                print(url)
+            # print(url)
+            return self.get("/" + url, **cache_args)
         if not isinstance(id, str) and id is not None:
             id = str(id)  # e.g. may be uuid.UUID
-        if action == 'read':
-            assert (endpoint_scheme[action]['action'] == 'get')
-            return self.get('/' + endpoint + '/' + id.split('/')[-1], **cache_args)
-        elif action == 'create':
-            assert (endpoint_scheme[action]['action'] == 'post')
-            return self.post('/' + endpoint, data=data, files=files)
-        elif action == 'delete':
-            assert (endpoint_scheme[action]['action'] == 'delete')
-            return self.delete('/' + endpoint + '/' + id.split('/')[-1])
-        elif action == 'partial_update':
-            assert (endpoint_scheme[action]['action'] == 'patch')
-            return self.patch('/' + endpoint + '/' + id.split('/')[-1], data=data, files=files)
-        elif action == 'update':
-            assert (endpoint_scheme[action]['action'] == 'put')
-            return self.put('/' + endpoint + '/' + id.split('/')[-1], data=data, files=files)
+        if action == "read":
+            assert endpoint_scheme[action]["action"] == "get"
+            return self.get("/" + endpoint + "/" + id.split("/")[-1], **cache_args)
+        elif action == "create":
+            assert endpoint_scheme[action]["action"] == "post"
+            return self.post("/" + endpoint, data=data, files=files)
+        elif action == "delete":
+            assert endpoint_scheme[action]["action"] == "delete"
+            return self.delete("/" + endpoint + "/" + id.split("/")[-1])
+        elif action == "partial_update":
+            assert endpoint_scheme[action]["action"] == "patch"
+            return self.patch(
+                "/" + endpoint + "/" + id.split("/")[-1], data=data, files=files
+            )
+        elif action == "update":
+            assert endpoint_scheme[action]["action"] == "put"
+            return self.put(
+                "/" + endpoint + "/" + id.split("/")[-1], data=data, files=files
+            )
 
     # JSON field interface convenience methods
     def _check_inputs(self, endpoint: str) -> None:
         # make sure the queried endpoint exists, if not throw an informative error
         if endpoint not in self.rest_schemes.keys():
-            av = [k for k in self.rest_schemes.keys() if not k.startswith('_') and k]
-            raise ValueError('REST endpoint "' + endpoint + '" does not exist. Available ' +
-                             'endpoints are \n       ' + '\n       '.join(av))
+            av = [k for k in self.rest_schemes.keys() if not k.startswith("_") and k]
+            raise ValueError(
+                'REST endpoint "'
+                + endpoint
+                + '" does not exist. Available '
+                + "endpoints are \n       "
+                + "\n       ".join(av)
+            )
         return
 
     def json_field_write(
-            self,
-            endpoint: str = None,
-            uuid: str = None,
-            field_name: str = None,
-            data: dict = None
+        self,
+        endpoint: str = None,
+        uuid: str = None,
+        field_name: str = None,
+        data: dict = None,
     ) -> dict:
         """
         Write data to JSON field.  WILL NOT CHECK IF DATA EXISTS
@@ -1136,11 +1306,11 @@ class AlyxClient():
         return ret[field_name]
 
     def json_field_update(
-            self,
-            endpoint: str = None,
-            uuid: str = None,
-            field_name: str = 'json',
-            data: dict = None
+        self,
+        endpoint: str = None,
+        uuid: str = None,
+        field_name: str = "json",
+        data: dict = None,
     ) -> dict:
         """
         Non-destructive update of JSON field of endpoint for object
@@ -1190,11 +1360,11 @@ class AlyxClient():
         return ret[field_name]
 
     def json_field_remove_key(
-            self,
-            endpoint: str = None,
-            uuid: str = None,
-            field_name: str = 'json',
-            key: str = None
+        self,
+        endpoint: str = None,
+        uuid: str = None,
+        field_name: str = "json",
+        key: str = None,
     ) -> Optional[dict]:
         """
         Remove inputted key from JSON field dict and re-upload it to Alyx.
@@ -1223,7 +1393,9 @@ class AlyxClient():
             return current
         # if contents are not dict, cannot remove key, return contents
         if isinstance(current, str):
-            _logger.warning(f"Cannot remove key {key} content of json field is of type str")
+            _logger.warning(
+                f"Cannot remove key {key} content of json field is of type str"
+            )
             return None
         # If key not present in contents of json field cannot remove key, return contents
         if current.get(key, None) is None:
@@ -1240,7 +1412,7 @@ class AlyxClient():
         return written
 
     def json_field_delete(
-            self, endpoint: str = None, uuid: str = None, field_name: str = None
+        self, endpoint: str = None, uuid: str = None, field_name: str = None
     ) -> None:
         self._check_inputs(endpoint)
         _ = self.rest(endpoint, "partial_update", id=uuid, data={field_name: None})
@@ -1248,5 +1420,5 @@ class AlyxClient():
 
     def clear_rest_cache(self):
         """Clear all REST response cache files for the base url"""
-        for file in self.cache_dir.joinpath('.rest').glob('*'):
+        for file in self.cache_dir.joinpath(".rest").glob("*"):
             file.unlink()
