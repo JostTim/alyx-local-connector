@@ -22,12 +22,13 @@ from iblutil.io import parquet, hashfile
 from iblutil.util import Bunch, flatten
 
 import one.params
-import one.webclient as wc
+from one.webclient import HTTPError, AlyxClient
 import one.alf.io as alfio
 import one.alf.exceptions as alferr
 from .alf.cache import make_parquet_db
 from .alf.files import rel_path_parts, get_session_path, get_alf_path, add_uuid_string
 from .alf.spec import is_uuid_string
+from .registration import RegistrationClient
 from one.converters import ConversionMixin
 import one.util as util
 
@@ -1103,17 +1104,22 @@ class OneAlyx(One):
         """
 
         # Load Alyx Web client
-        self._web_client = wc.AlyxClient(
+        self._web_client = AlyxClient(
             username=username,
             password=password,
             base_url=base_url,
             cache_dir=cache_dir,
             **kwargs,
         )
+
+        self.data_access_mode = data_access_mode
+
         self._search_endpoint = "sessions"
+
         # get parameters override if inputs provided
         super().__init__(mode=mode, wildcards=wildcards, cache_dir=cache_dir)
-        self.data_access_mode = data_access_mode
+
+        self._registration_client = RegistrationClient(self)
 
     def set_data_access_mode(self, mode):
         available_modes = [
@@ -1212,7 +1218,7 @@ class OneAlyx(One):
             )
             assert any(files)
             super().load_cache(cache_dir)  # Reload cache after download
-        except (requests.exceptions.HTTPError, wc.HTTPError) as ex:
+        except (requests.exceptions.HTTPError, HTTPError) as ex:
             _logger.debug(ex)
             ##REMOVED THIS WARNING FOR NOW AS I CAN'T FIND IF IT IS ACTUALLY USEFULL TO HAVE A REMOTE CACHE WHEN SETUPING A LOCAL USE OF ALYX LIKE WE DO
             # _logger.error('Failed to load the remote cache file')
@@ -1226,6 +1232,10 @@ class OneAlyx(One):
     def alyx(self):
         """one.webclient.AlyxClient: The Alyx Web client"""
         return self._web_client
+
+    @property
+    def register(self):
+        return self._registration_client
 
     @property
     def cache_dir(self):
@@ -1612,8 +1622,6 @@ class OneAlyx(One):
                 params["lab"] = value
             else:
                 params[field] = value
-
-        print(params)
 
         # Make GET request
         ses = self.alyx.rest(

@@ -18,21 +18,24 @@ from pathlib import Path
 from urllib.parse import urlsplit
 import unicodedata
 
-_PAR_ID_STR = 'one'
-_CLIENT_ID_STR = 'caches'
+_PAR_ID_STR = "one"
+_CLIENT_ID_STR = "caches"
 CACHE_DIR_DEFAULT = str(Path.home() / "Downloads" / "ONE")
 """str: The default database location"""
 LOCAL_ROOT_DIR_DEFAULT = Path(CACHE_DIR_DEFAULT) / "LOCAL_DATA"
 """str: The default rawdata download location"""
 
+
 def default():
     """Default Web client parameters"""
-    par = {"ALYX_URL": "http://157.99.138.172:8080",
-           "ALYX_LOGIN": "guest",
-           "HTTP_DATA_SERVER": "--unused",
-           "HTTP_DATA_SERVER_LOGIN": "--unused",
-           "HTTP_DATA_SERVER_PWD": "--unused",
-           "LOCAL_ROOT" : LOCAL_ROOT_DIR_DEFAULT}
+    par = {
+        "ALYX_URL": "http://157.99.138.172:8080",
+        "ALYX_LOGIN": "guest",
+        "HTTP_DATA_SERVER": "--unused",
+        "HTTP_DATA_SERVER_LOGIN": "--unused",
+        "HTTP_DATA_SERVER_PWD": "--unused",
+        "LOCAL_ROOT": LOCAL_ROOT_DIR_DEFAULT,
+    }
     return iopar.from_dict(par)
 
 
@@ -60,28 +63,30 @@ def _get_current_par(k, par_current):
 
 def _key_from_url(url: str) -> str:
     """
-    Convert a URL str to one valid for use as a file name or dict key.  URL Protocols are
-    removed entirely.  The returned string will have characters in the set [a-zA-Z.-_].
+     Convert a URL str to one valid for use as a file name or dict key.  URL Protocols are
+     removed entirely.  The returned string will have characters in the set [a-zA-Z.-_].
 
-    Parameters
-    ----------
-    url : str
-        A URL string
+     Parameters
+     ----------
+     url : str
+         A URL string
 
-    Returns
-    -------
-    str
-        A filename-safe string
+     Returns
+     -------
+     str
+         A filename-safe string
 
-    Example
-    -------
-    >>> url = _key_from_url('http://test.alyx.internationalbrainlab.org/')
-   'test.alyx.internationalbrainlab.org'
+     Example
+     -------
+     >>> url = _key_from_url('http://test.alyx.internationalbrainlab.org/')
+    'test.alyx.internationalbrainlab.org'
     """
-    url = unicodedata.normalize('NFKC', url)  # Ensure ASCII
-    url = re.sub('^https?://', '', url).strip('/')  # Remove protocol and trialing slashes
-    url = re.sub(r'[^.\w\s-]', '_', url.lower())  # Convert non word chars to underscore
-    return re.sub(r'[-\s]+', '-', url)  # Convert spaces to hyphens
+    url = unicodedata.normalize("NFKC", url)  # Ensure ASCII
+    url = re.sub("^https?://", "", url).strip(
+        "/"
+    )  # Remove protocol and trialing slashes
+    url = re.sub(r"[^.\w\s-]", "_", url.lower())  # Convert non word chars to underscore
+    return re.sub(r"[-\s]+", "-", url)  # Convert spaces to hyphens
 
 
 def setup(client=None, silent=False, make_default=None, username=None):
@@ -112,14 +117,16 @@ def setup(client=None, silent=False, make_default=None, username=None):
     client_key = _key_from_url(client or par_default.ALYX_URL)
 
     # If a client URL has been provided, set it as the default URL
-    par_default = par_default.set('ALYX_URL', client or par_default.ALYX_URL)
-    par_current = iopar.read(f'{_PAR_ID_STR}/{client_key}', par_default)
+    par_default = par_default.set("ALYX_URL", client or par_default.ALYX_URL)
+    par_current = iopar.read(f"{_PAR_ID_STR}/{client_key}", par_default)
     if username:
-        par_current = par_current.set('ALYX_LOGIN', username)
+        par_current = par_current.set("ALYX_LOGIN", username)
 
     # Load the db URL map
-    cache_map = iopar.read(f'{_PAR_ID_STR}/{_CLIENT_ID_STR}', {'CLIENT_MAP': dict()})
-    cache_dir = cache_map.CLIENT_MAP.get(client_key, Path(CACHE_DIR_DEFAULT, client_key))
+    cache_map = iopar.read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {"CLIENT_MAP": dict()})
+    cache_dir = cache_map.CLIENT_MAP.get(
+        client_key, Path(CACHE_DIR_DEFAULT, client_key)
+    )
 
     if not silent:
         par = iopar.as_dict(par_default)
@@ -127,39 +134,44 @@ def setup(client=None, silent=False, make_default=None, username=None):
             cpar = _get_current_par(k, par_current)
             # Prompt for database URL; skip if client url already provided
 
-            #We do not use an HTTP data server but smb file exchange. All HTTP_DATA_SERVER params are set to --unused
-            if "HTTP_DATA_SERVER" in k :
+            # We do not use an HTTP data server but smb file exchange. All HTTP_DATA_SERVER params are set to --unused
+            if "HTTP_DATA_SERVER" in k:
                 par[k] = "--unused"
                 continue
 
-            if k == 'ALYX_URL':
+            if k == "ALYX_URL":
                 if not client:
-                    par[k] = input(f'Param {k}, current value is ["{str(cpar)}"]:') or cpar
-                    if '://' not in par[k]:
-                        par[k] = 'https://' + par[k]
+                    par[k] = (
+                        input(f'Param {k}, current value is ["{str(cpar)}"]:') or cpar
+                    )
+                    if "://" not in par[k]:
+                        par[k] = "https://" + par[k]
                     url_parsed = urlsplit(par[k])
-                    if not (url_parsed.netloc and re.match('https?', url_parsed.scheme)):
-                        raise ValueError(f'{k} must be valid HTTP URL')
+                    if not (
+                        url_parsed.netloc and re.match("https?", url_parsed.scheme)
+                    ):
+                        raise ValueError(f"{k} must be valid HTTP URL")
                     client = par[k]
             # Iterate through other non-password pars
-            elif 'PWD' not in k:
+            elif "PWD" not in k:
                 par[k] = input(f'Param {k}, current value is ["{str(cpar)}"]:') or cpar
 
-
-        #REMOVED : we do not use an HTTP data server but smb file exchange.
-        #cpar = _get_current_par('HTTP_DATA_SERVER_PWD', par_current)
-        #prompt = f'Enter the FlatIron HTTP password for {par["HTTP_DATA_SERVER_LOGIN"]} '\
+        # REMOVED : we do not use an HTTP data server but smb file exchange.
+        # cpar = _get_current_par('HTTP_DATA_SERVER_PWD', par_current)
+        # prompt = f'Enter the FlatIron HTTP password for {par["HTTP_DATA_SERVER_LOGIN"]} '\
         #         '(leave empty to keep current): '
-        #par['HTTP_DATA_SERVER_PWD'] = getpass(prompt) or cpar
+        # par['HTTP_DATA_SERVER_PWD'] = getpass(prompt) or cpar
 
-        if 'ALYX_PWD' in par_current.as_dict():
+        if "ALYX_PWD" in par_current.as_dict():
             # Only store plain text password if user manually added it to params JSON file
-            cpar = _get_current_par('ALYX_PWD', par_current)
-            prompt = (f'Enter the Alyx password for {par["ALYX_LOGIN"]} '
-                      '(leave empty to keep current):')
-            par['ALYX_PWD'] = getpass(prompt) or cpar
+            cpar = _get_current_par("ALYX_PWD", par_current)
+            prompt = (
+                f'Enter the Alyx password for {par["ALYX_LOGIN"]} '
+                "(leave empty to keep current):"
+            )
+            par["ALYX_PWD"] = getpass(prompt) or cpar
 
-        #create the LOCAL_ROOT directory if it does not exist
+        # create the LOCAL_ROOT directory if it does not exist
         Path(par["LOCAL_ROOT"]).mkdir(exist_ok=True, parents=True)
 
         par = iopar.from_dict(par)
@@ -167,8 +179,10 @@ def setup(client=None, silent=False, make_default=None, username=None):
         # Prompt for cache directory
         client_key = _key_from_url(par.ALYX_URL)
         cache_dir = Path(CACHE_DIR_DEFAULT, client_key)
-        answer = input(f'Would you like to keep the default database cache location ? [Y/n]')
-        if (answer or 'y')[0].lower() == 'n':
+        answer = input(
+            "Would you like to keep the default database cache location ? [Y/n]"
+        )
+        if (answer or "y")[0].lower() == "n":
             prompt = f'Enter the location of the database cache, current value is ["{cache_dir}"]:'
             cache_dir = input(prompt) or cache_dir
 
@@ -176,20 +190,21 @@ def setup(client=None, silent=False, make_default=None, username=None):
         in_use = [v for k, v in cache_map.CLIENT_MAP.items() if k != client_key]
         while str(cache_dir) in in_use:
             answer = input(
-                'Warning: the directory provided is already a cache for another URL.  '
-                'This may cause conflicts.  Would you like to change the cache location? [Y/n]')
-            if answer and answer[0].lower() == 'n':
+                "Warning: the directory provided is already a cache for another URL.  "
+                "This may cause conflicts.  Would you like to change the cache location? [Y/n]"
+            )
+            if answer and answer[0].lower() == "n":
                 break
             cache_dir = input(prompt) or cache_dir  # Prompt for another directory
 
         if make_default is None:
-            answer = input('Would you like to set this URL as the default one? [Y/n]')
-            make_default = (answer or 'y')[0].lower() == 'y'
+            answer = input("Would you like to set this URL as the default one? [Y/n]")
+            make_default = (answer or "y")[0].lower() == "y"
 
         # Verify setup pars
-        answer = input('Are the above settings correct? [Y/n]')
-        if answer and answer.lower()[0] == 'n':
-            print('SETUP ABANDONED.  Please re-run.')
+        answer = input("Are the above settings correct? [Y/n]")
+        if answer and answer.lower()[0] == "n":
+            print("SETUP ABANDONED.  Please re-run.")
             return par_current
     else:
         par = par_current
@@ -199,19 +214,21 @@ def setup(client=None, silent=False, make_default=None, username=None):
     rest_dir = Path(cache_dir).joinpath(".rest")
     rest_dir.mkdir(exist_ok=True, parents=True)
     from iblutil.io.params import set_hidden
+
     set_hidden(rest_dir, True)
 
     cache_map.CLIENT_MAP[client_key] = str(cache_dir)
-    if make_default or 'DEFAULT' not in cache_map.as_dict():
-        cache_map = cache_map.set('DEFAULT', client_key)
+    if make_default or "DEFAULT" not in cache_map.as_dict():
+        cache_map = cache_map.set("DEFAULT", client_key)
 
-    iopar.write(f'{_PAR_ID_STR}/{client_key}', par)  # Client params
-    iopar.write(f'{_PAR_ID_STR}/{_CLIENT_ID_STR}', cache_map)
+    iopar.write(f"{_PAR_ID_STR}/{client_key}", par)  # Client params
+    iopar.write(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", cache_map)
 
     if not silent:
-        print('ONE Parameter files location: ' + iopar.getfile(_PAR_ID_STR))
- 
+        print("ONE Parameter files location: " + iopar.getfile(_PAR_ID_STR))
+
     return cache_map
+
 
 def get(client=None, silent=False, username=None):
     """Returns the AlyxClient parameters
@@ -231,14 +248,16 @@ def get(client=None, silent=False, username=None):
         A Params object for the AlyxClient.
     """
     client_key = _key_from_url(client) if client else None
-    cache_map = iopar.read(f'{_PAR_ID_STR}/{_CLIENT_ID_STR}', {})
+    cache_map = iopar.read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {})
     # If there are no params for this client, run setup routine
     if not cache_map or (client_key and client_key not in cache_map.CLIENT_MAP):
         cache_map = setup(client=client, silent=silent, username=username)
     cache = cache_map.CLIENT_MAP[client_key or cache_map.DEFAULT]
-    pars = iopar.read(f'{_PAR_ID_STR}/{client_key or cache_map.DEFAULT}').set('CACHE_DIR', cache)
+    pars = iopar.read(f"{_PAR_ID_STR}/{client_key or cache_map.DEFAULT}").set(
+        "CACHE_DIR", cache
+    )
     if username:
-        pars = pars.set('ALYX_LOGIN', username)
+        pars = pars.set("ALYX_LOGIN", username)
     return _patch_params(pars)
 
 
@@ -256,8 +275,8 @@ def get_default_client(include_schema=True) -> str:
     str
         The default database URL with or without the schema, or None if no default is set
     """
-    cache_map = iopar.as_dict(iopar.read(f'{_PAR_ID_STR}/{_CLIENT_ID_STR}', {})) or {}
-    client_key = cache_map.get('DEFAULT', None)
+    cache_map = iopar.as_dict(iopar.read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {})) or {}
+    client_key = cache_map.get("DEFAULT", None)
     if not client_key or include_schema is False:
         return client_key
     return get(client_key).ALYX_URL
@@ -275,8 +294,8 @@ def save(par, client):
         The Alyx URL that corresponds to these parameters
     """
     # Remove cache dir variable before saving
-    par = {k: v for k, v in iopar.as_dict(par).items() if 'CACHE_DIR' not in k}
-    iopar.write(f'{_PAR_ID_STR}/{_key_from_url(client)}', par)
+    par = {k: v for k, v in iopar.as_dict(par).items() if "CACHE_DIR" not in k}
+    iopar.write(f"{_PAR_ID_STR}/{_key_from_url(client)}", par)
 
 
 def get_cache_dir(client=None) -> Path:
@@ -294,12 +313,12 @@ def get_cache_dir(client=None) -> Path:
     pathlib.Path
         The download cache path
     """
-    cache_map = iopar.read(f'{_PAR_ID_STR}/{_CLIENT_ID_STR}', {})
+    cache_map = iopar.read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {})
     client = _key_from_url(client) if client else cache_map.DEFAULT
     cache_dir = Path(cache_map.CLIENT_MAP[client] if cache_map else CACHE_DIR_DEFAULT)
     cache_dir.mkdir(exist_ok=True, parents=True)
-    #cache_dir.joinpath(".rest").mkdir(exist_ok=True, parents=True)
-    
+    # cache_dir.joinpath(".rest").mkdir(exist_ok=True, parents=True)
+
     return cache_dir
 
 
@@ -330,7 +349,9 @@ def check_cache_conflict(cache_dir):
     AssertionError
         The directory is set as a cache for a Web client
     """
-    cache_map = getattr(iopar.read(f'{_PAR_ID_STR}/{_CLIENT_ID_STR}', {}), 'CLIENT_MAP', None)
+    cache_map = getattr(
+        iopar.read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {}), "CLIENT_MAP", None
+    )
     if cache_map:
         assert not any(x == str(cache_dir) for x in cache_map.values())
 
@@ -352,23 +373,24 @@ def _patch_params(par):
     """
     # Patch the URL of data server, if database is OpenAlyx.
     # The data location is in /public, however this path is no longer in the cache table
-    if 'openalyx' in par.ALYX_URL and 'public' not in par.HTTP_DATA_SERVER:
-        par = par.set('HTTP_DATA_SERVER', default().HTTP_DATA_SERVER)
+    if "openalyx" in par.ALYX_URL and "public" not in par.HTTP_DATA_SERVER:
+        par = par.set("HTTP_DATA_SERVER", default().HTTP_DATA_SERVER)
         save(par, par.ALYX_URL)
 
     # Move old REST data
-    rest_dir = get_params_dir() / '.rest'
+    rest_dir = get_params_dir() / ".rest"
     scheme, loc, *_ = urlsplit(par.ALYX_URL)
-    rest_dir /= Path(loc.replace(':', '_'), scheme)
-    new_rest_dir = Path(par.CACHE_DIR, '.rest')
+    rest_dir /= Path(loc.replace(":", "_"), scheme)
+    new_rest_dir = Path(par.CACHE_DIR, ".rest")
 
-    if rest_dir.exists() and any(x for x in rest_dir.glob('*') if x.is_file()):
+    if rest_dir.exists() and any(x for x in rest_dir.glob("*") if x.is_file()):
         if not new_rest_dir.exists():
             shutil.move(str(rest_dir), str(new_rest_dir))
             from iblutil.io.params import set_hidden
+
             set_hidden(new_rest_dir, True)
         shutil.rmtree(rest_dir.parent)
-        if not any(get_params_dir().joinpath('.rest').glob('*')):
-            get_params_dir().joinpath('.rest').rmdir()
+        if not any(get_params_dir().joinpath(".rest").glob("*")):
+            get_params_dir().joinpath(".rest").rmdir()
 
     return par

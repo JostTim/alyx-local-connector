@@ -44,46 +44,53 @@ def ses2records(ses: dict, int_id=False):
         Datasets frame
     """
     # Extract session record
-    eid = ses['url'][-36:]
+    eid = ses["url"][-36:]
     if int_id:
         eid = tuple(parquet.str2np(eid).flatten())
-    session_keys = ('subject', 'start_time', 'lab', 'number', 'task_protocol', 'projects')
-    session_data = {k: v for k, v in ses.items() if k in session_keys}
-    session = (
-        pd.Series(data=session_data, name=eid).rename({'start_time': 'date'})
+    session_keys = (
+        "subject",
+        "start_time",
+        "lab",
+        "number",
+        "task_protocol",
+        "projects",
     )
-    session['projects'] = ','.join(session.pop('projects'))
-    session['date'] = datetime.fromisoformat(session['date']).date()
+    session_data = {k: v for k, v in ses.items() if k in session_keys}
+    session = pd.Series(data=session_data, name=eid).rename({"start_time": "date"})
+    session["projects"] = ",".join(session.pop("projects"))
+    session["date"] = datetime.fromisoformat(session["date"]).date()
 
     # Extract datasets table
     def _to_record(d):
-        rec = dict(file_size=d['file_size'], hash=d['hash'], exists=True)
+        rec = dict(file_size=d["file_size"], hash=d["hash"], exists=True)
         if int_id:
-            rec['id_0'], rec['id_1'] = parquet.str2np(d['id']).flatten().tolist()
-            rec['eid_0'], rec['eid_1'] = session.name
+            rec["id_0"], rec["id_1"] = parquet.str2np(d["id"]).flatten().tolist()
+            rec["eid_0"], rec["eid_1"] = session.name
         else:
-            rec['id'] = d['id']
-            rec['eid'] = session.name
-        try :
-            file_path = urllib.parse.urlsplit(d['data_url'], allow_fragments=False).path.strip('/')
+            rec["id"] = d["id"]
+            rec["eid"] = session.name
+        try:
+            file_path = urllib.parse.urlsplit(
+                d["data_url"], allow_fragments=False
+            ).path.strip("/")
             file_path = alfio.remove_uuid_file(file_path, dry=True).as_posix()
-            rec['session_path'] = get_session_path(file_path).as_posix()
-            rec['rel_path'] = file_path[len(rec['session_path']):].strip('/')
-        except TypeError: #no data url is present
-            file_path = ''
-            rec['session_path'] = file_path
-            rec['rel_path'] = file_path
-        rec['dataset_type'] = d['dataset_type']
-        rec['revision'] = d['revision']
-        rec['version'] = d['version']
-        rec['collection'] = d['collection'] or ''
-        rec['default_revision'] = d['default_revision'] == 'True'
+            rec["session_path"] = get_session_path(file_path).as_posix()
+            rec["rel_path"] = file_path[len(rec["session_path"]) :].strip("/")
+        except TypeError:  # no data url is present
+            file_path = ""
+            rec["session_path"] = file_path
+            rec["rel_path"] = file_path
+        rec["dataset_type"] = d["dataset_type"]
+        rec["revision"] = d["revision"]
+        rec["version"] = d["version"]
+        rec["collection"] = d["collection"] or ""
+        rec["default_revision"] = d["default_revision"] == "True"
         return rec
 
-    if not ses.get('data_dataset_session_related'):
+    if not ses.get("data_dataset_session_related"):
         return session, None
-    records = map(_to_record, ses['data_dataset_session_related'])
-    index = ['eid_0', 'eid_1', 'id_0', 'id_1'] if int_id else ['eid', 'id']
+    records = map(_to_record, ses["data_dataset_session_related"])
+    index = ["eid_0", "eid_1", "id_0", "id_1"] if int_id else ["eid", "id"]
     datasets = pd.DataFrame(records).set_index(index).sort_index()
     return session, datasets
 
@@ -111,32 +118,41 @@ def datasets2records(datasets, int_id=False) -> pd.DataFrame:
     records = []
 
     for d in ensure_list(datasets):
-        file_record = next((x for x in d['file_records'] if x['exists']), None)
+        file_record = next((x for x in d["file_records"] if x["exists"]), None)
         print(file_record)
         if not file_record:
             continue  # Ignore files that are not accessible
-        rec = dict(file_size=d['file_size'], hash=d['hash'], exists=True)
+        rec = dict(file_size=d["file_size"], hash=d["hash"], exists=True)
         if int_id:
-            rec['id_0'], rec['id_1'] = parquet.str2np(d['url'][-36:]).flatten().tolist()
-            rec['eid_0'], rec['eid_1'] = parquet.str2np(d['session'][-36:]).flatten().tolist()
+            rec["id_0"], rec["id_1"] = parquet.str2np(d["url"][-36:]).flatten().tolist()
+            rec["eid_0"], rec["eid_1"] = (
+                parquet.str2np(d["session"][-36:]).flatten().tolist()
+            )
         else:
-            rec['id'] = d['url'][-36:]
-            rec['eid'] = d['session'][-36:]
-        data_url = urllib.parse.urlsplit(file_record['data_url'], allow_fragments=False)
-        file_path = get_alf_path(data_url.path.strip('/'))
+            rec["id"] = d["url"][-36:]
+            rec["eid"] = d["session"][-36:]
+        data_url = urllib.parse.urlsplit(file_record["data_url"], allow_fragments=False)
+        file_path = get_alf_path(data_url.path.strip("/"))
         file_path = alfio.remove_uuid_file(file_path, dry=True).as_posix()
-        rec['session_path'] = get_session_path(file_path).as_posix()
-        rec['rel_path'] = file_path[len(rec['session_path']):].strip('/')
-        rec['default_revision'] = d['default_dataset']
-        rec['dataset_type'] = d['dataset_type']
-        rec['version'] = d['version']
-        rec['collection'] = d['collection'] or ''
-        rec['revision'] = d['revision']
+        rec["session_path"] = get_session_path(file_path).as_posix()
+        rec["rel_path"] = file_path[len(rec["session_path"]) :].strip("/")
+        rec["default_revision"] = d["default_dataset"]
+        rec["dataset_type"] = d["dataset_type"]
+        rec["version"] = d["version"]
+        rec["collection"] = d["collection"] or ""
+        rec["revision"] = d["revision"]
         records.append(rec)
 
-    index = ['eid_0', 'eid_1', 'id_0', 'id_1'] if int_id else ['eid', 'id']
+    index = ["eid_0", "eid_1", "id_0", "id_1"] if int_id else ["eid", "id"]
     if not records:
-        keys = (*index, 'file_size', 'hash', 'session_path', 'rel_path', 'default_revision')
+        keys = (
+            *index,
+            "file_size",
+            "hash",
+            "session_path",
+            "rel_path",
+            "default_revision",
+        )
         return pd.DataFrame(columns=keys).set_index(index)
     return pd.DataFrame(records).set_index(index).sort_index()
 
@@ -178,8 +194,8 @@ def refresh(method):
 
     @wraps(method)
     def wrapper(self, *args, **kwargs):
-        mode = kwargs.get('query_type', None)
-        if not mode or mode == 'auto':
+        mode = kwargs.get("query_type", None)
+        if not mode or mode == "auto":
             mode = self.mode
         self.refresh_cache(mode=mode)
         return method(self, *args, **kwargs)
@@ -263,10 +279,12 @@ def _collection_spec(collection=None, revision=None) -> str:
     str
         A string format for matching the collection/revision
     """
-    spec = ''
-    for value, default in zip((collection, revision), ('{collection}/', '#{revision}#/')):
+    spec = ""
+    for value, default in zip(
+        (collection, revision), ("{collection}/", "#{revision}#/")
+    ):
         if not value:
-            default = f'({default})?' if value is None else ''
+            default = f"({default})?" if value is None else ""
         spec += default
     return spec
 
@@ -297,18 +315,25 @@ def _file_spec(**kwargs):
     str
         A string format for matching an ALF dataset
     """
-    OPTIONAL = {'namespace': '?', 'timescale': '?', 'extra': '*'}
+    OPTIONAL = {"namespace": "?", "timescale": "?", "extra": "*"}
     filespec = FILE_SPEC
     for k, v in kwargs.items():
         if k in OPTIONAL and v is not None:
             i = filespec.find(k) + len(k)
             i += filespec[i:].find(OPTIONAL[k])
-            filespec = filespec[:i] + filespec[i:].replace(OPTIONAL[k], '', 1)
+            filespec = filespec[:i] + filespec[i:].replace(OPTIONAL[k], "", 1)
     return filespec
 
 
-def filter_datasets(all_datasets, filename=None, collection=None, revision=None,
-                    revision_last_before=True, assert_unique=True, wildcards=False):
+def filter_datasets(
+    all_datasets,
+    filename=None,
+    collection=None,
+    revision=None,
+    revision_last_before=True,
+    assert_unique=True,
+    wildcards=False,
+):
     """
     Filter the datasets cache table by the relative path (dataset name, collection and revision).
     When None is passed, all values will match.  To match on empty parts, use an empty string.
@@ -359,23 +384,24 @@ def filter_datasets(all_datasets, filename=None, collection=None, revision=None,
     >>> datasets = filter_datasets(all_datasets, dict(object='spikes', attribute='times'))
     """
 
-    def text_is_in(cell,text=None):
-        if text is None :
+    def text_is_in(cell, text=None):
+        if text is None:
             return True
-        if cell is None :
+        if cell is None:
             return False
-        if re.match(text,cell):
+        if re.match(text, cell):
             return True
         return False
-    collection_filter = all_datasets["collection"].apply(text_is_in,text = collection)
-    filename_filter = all_datasets["dataset_type"].apply(text_is_in,text = filename)
-    
+
+    collection_filter = all_datasets["collection"].apply(text_is_in, text=collection)
+    filename_filter = all_datasets["dataset_type"].apply(text_is_in, text=filename)
+
     match = all_datasets[collection_filter & filename_filter]
     return filter_revision_last_before(match, revision, assert_unique=assert_unique)
 
     # Create a regular expression string to match relative path against
     filename = filename or {}
-    regex_args = {'collection': collection}
+    regex_args = {"collection": collection}
     spec_str = _collection_spec(collection, None if revision_last_before else revision)
 
     if isinstance(filename, dict):
@@ -383,8 +409,11 @@ def filter_datasets(all_datasets, filename=None, collection=None, revision=None,
         regex_args.update(**filename)
     else:
         # Convert to regex is necessary and assert end of string
-        filename = [fnmatch.translate(x) if wildcards else x + '$' for x in ensure_list(filename)]
-        spec_str += '|'.join(filename)
+        filename = [
+            fnmatch.translate(x) if wildcards else x + "$"
+            for x in ensure_list(filename)
+        ]
+        spec_str += "|".join(filename)
 
     # If matching revision name, add to regex string
     if not revision_last_before:
@@ -395,26 +424,26 @@ def filter_datasets(all_datasets, filename=None, collection=None, revision=None,
             continue
         if wildcards:
             # Convert to regex, remove \\Z which asserts end of string
-            v = (fnmatch.translate(x).replace('\\Z', '') for x in ensure_list(v))
+            v = (fnmatch.translate(x).replace("\\Z", "") for x in ensure_list(v))
         if not isinstance(v, str):
-            regex_args[k] = '|'.join(v)  # logical OR
+            regex_args[k] = "|".join(v)  # logical OR
 
     # Build regex string
 
-    pattern = alf_regex('^' + spec_str, **regex_args)
-    match = all_datasets[all_datasets['rel_path'].str.match(pattern)]
+    pattern = alf_regex("^" + spec_str, **regex_args)
+    match = all_datasets[all_datasets["rel_path"].str.match(pattern)]
     if len(match) == 0 or not (revision_last_before or assert_unique):
         return match
 
-    revisions = [rel_path_parts(x)[1] or '' for x in match.rel_path.values]
+    revisions = [rel_path_parts(x)[1] or "" for x in match.rel_path.values]
     if assert_unique:
-        collections = set(rel_path_parts(x)[0] or '' for x in match.rel_path.values)
+        collections = set(rel_path_parts(x)[0] or "" for x in match.rel_path.values)
         if len(collections) > 1:
             _list = '"' + '", "'.join(collections) + '"'
             raise alferr.ALFMultipleCollectionsFound(_list)
         if not revision_last_before:
             if filename and len(match) > 1:
-                _list = '"' + '", "'.join(match['rel_path']) + '"'
+                _list = '"' + '", "'.join(match["rel_path"]) + '"'
                 raise alferr.ALFMultipleObjectsFound(_list)
             if len(set(revisions)) > 1:
                 _list = '"' + '", "'.join(set(revisions)) + '"'
@@ -422,7 +451,7 @@ def filter_datasets(all_datasets, filename=None, collection=None, revision=None,
             else:
                 return match
         elif filename and len(set(revisions)) != len(revisions):
-            _list = '"' + '", "'.join(match['rel_path']) + '"'
+            _list = '"' + '", "'.join(match["rel_path"]) + '"'
             raise alferr.ALFMultipleObjectsFound(_list)
 
     return filter_revision_last_before(match, revision, assert_unique=assert_unique)
@@ -448,37 +477,39 @@ def filter_revision_last_before(datasets, revision=None, assert_unique=True):
     pd.DataFrame
         A datasets DataFrame with 0 or 1 row per unique dataset
     """
-    if revision is None :
+    if revision is None:
         return datasets[datasets["default_revision"]]
-    return datasets[datasets["revision"]==revision]
+    return datasets[datasets["revision"] == revision]
 
     def _last_before(df):
         """Takes a DataFrame with only one dataset and multiple revisions, returns matching row"""
-        if revision is None and 'default_revision' in df.columns:
+        if revision is None and "default_revision" in df.columns:
             if assert_unique and sum(df.default_revision) > 1:
-                revisions = df['revision'][df.default_revision.values]
+                revisions = df["revision"][df.default_revision.values]
                 rev_list = '"' + '", "'.join(revisions) + '"'
                 raise alferr.ALFMultipleRevisionsFound(rev_list)
             if sum(df.default_revision) == 1:
                 return df[df.default_revision]
             # default_revision column all False; default doesn't isn't copied to remote repository
-            dset_name = df['rel_path'].iloc[0]
+            dset_name = df["rel_path"].iloc[0]
             if assert_unique:
-                raise alferr.ALFError(f'No default revision for dataset {dset_name}')
+                raise alferr.ALFError(f"No default revision for dataset {dset_name}")
             else:
-                logger.warning(f'No default revision for dataset {dset_name}; using most recent')
+                logger.warning(
+                    f"No default revision for dataset {dset_name}; using most recent"
+                )
         # Compare revisions lexicographically
-        if assert_unique and len(df['revision'].unique()) > 1:
-            rev_list = '"' + '", "'.join(df['revision'].unique()) + '"'
+        if assert_unique and len(df["revision"].unique()) > 1:
+            rev_list = '"' + '", "'.join(df["revision"].unique()) + '"'
             raise alferr.ALFMultipleRevisionsFound(rev_list)
         # Square brackets forces 1 row DataFrame returned instead of Series
-        idx = index_last_before(df['revision'].tolist(), revision)
+        idx = index_last_before(df["revision"].tolist(), revision)
         # return df.iloc[slice(0, 0) if idx is None else [idx], :]
         return df.iloc[slice(0, 0) if idx is None else [idx], :]
 
-    with pd.option_context('mode.chained_assignment', None):  # FIXME Explicitly copy?
-        datasets['revision'] = [rel_path_parts(x)[1] or '' for x in datasets.rel_path]
-    groups = datasets.rel_path.str.replace('#.*#/', '', regex=True).values
+    with pd.option_context("mode.chained_assignment", None):  # FIXME Explicitly copy?
+        datasets["revision"] = [rel_path_parts(x)[1] or "" for x in datasets.rel_path]
+    groups = datasets.rel_path.str.replace("#.*#/", "", regex=True).values
     grouped = datasets.groupby(groups, group_keys=False)
     return grouped.apply(_last_before)
 
@@ -532,13 +563,18 @@ def autocomplete(term, search_terms) -> str:
 
 def ensure_list(value):
     """Ensure input is a list"""
-    return [value] if isinstance(value, (str, dict)) or not isinstance(value, Iterable) else value
+    return (
+        [value]
+        if isinstance(value, (str, dict)) or not isinstance(value, Iterable)
+        else value
+    )
 
 
 class LazyId(Mapping):
     """
     Using a paginated response object or list of session records, extracts eid string when required
     """
+
     def __init__(self, pg):
         self._pg = pg
 
@@ -568,7 +604,7 @@ class LazyId(Mapping):
         if isinstance(ses, list):
             return [LazyId.ses2eid(x) for x in ses]
         else:
-            return ses.get('id', None) or ses['url'].split('/').pop()
+            return ses.get("id", None) or ses["url"].split("/").pop()
 
 
 def cache_int2str(table: pd.DataFrame) -> pd.DataFrame:
@@ -581,14 +617,14 @@ def cache_int2str(table: pd.DataFrame) -> pd.DataFrame:
 
     """
     # Convert integer uuids to str uuids
-    if table.index.nlevels < 2 or not any(x.endswith('_0') for x in table.index.names):
+    if table.index.nlevels < 2 or not any(x.endswith("_0") for x in table.index.names):
         return table
     table = table.reset_index()
-    int_cols = table.filter(regex=r'_\d{1}$').columns.sort_values()
-    assert not len(int_cols) % 2, 'expected even number of columns ending in _0 or _1'
-    names = sorted(set(c.rsplit('_', 1)[0] for c in int_cols.values))
+    int_cols = table.filter(regex=r"_\d{1}$").columns.sort_values()
+    assert not len(int_cols) % 2, "expected even number of columns ending in _0 or _1"
+    names = sorted(set(c.rsplit("_", 1)[0] for c in int_cols.values))
     for i, name in zip(range(0, len(int_cols), 2), names):
-        table[name] = parquet.np2str(table[int_cols[i:i + 2]])
+        table[name] = parquet.np2str(table[int_cols[i : i + 2]])
     table = table.drop(int_cols, axis=1).set_index(names)
     return table
 
@@ -606,9 +642,9 @@ def patch_cache(table: pd.DataFrame, min_api_version=None) -> pd.DataFrame:
     min_api_version : str
         The minimum API version supported by this cache table.
     """
-    min_version = version.parse(min_api_version or '0.0.0')
+    min_version = version.parse(min_api_version or "0.0.0")
     table = cache_int2str(table)
     # Rename project column
-    if min_version < version.Version('1.13.0') and 'project' in table.columns:
-        table.rename(columns={'project': 'projects'}, inplace=True)
+    if min_version < version.Version("1.13.0") and "project" in table.columns:
+        table.rename(columns={"project": "projects"}, inplace=True)
     return table

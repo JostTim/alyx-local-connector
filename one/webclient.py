@@ -277,7 +277,6 @@ def update_url_params(url: str, params: dict) -> str:
     parsed_get_args = urllib.parse.parse_qs(parsed_url.query, keep_blank_values=False)
     # Merge URL arguments dict with new params
     parsed_get_args.update(params)
-    print(parsed_get_args)
     # Convert back to query string
     encoded_get_args = urllib.parse.urlencode(parsed_get_args, doseq=True)
     # Update parser and convert to full URL str
@@ -292,7 +291,6 @@ def update_url_listparams(url: str, params: list) -> str:
     # Extract URL query arguments, merge with existing params
     parsed_get_args = urllib.parse.parse_qsl(parsed_url.query, keep_blank_values=False)
     parsed_get_args += params
-    print(parsed_get_args)
 
     # Convert back to query string
     encoded_get_args = urllib.parse.urlencode(parsed_get_args, doseq=True)
@@ -1222,16 +1220,13 @@ class AlyxClient:
                             json_query = f"{'__'.join(json_chain_keys)},{json_value}"
                             values.append(json_query)
 
-                        value = ",".join(values)
+                        value = ";".join(values)
 
                     query_params.append((key, ",".join(map(str, ensure_list(value)))))
 
                 # the ",".join(map(str system allows to convert all lists in query params to comma separated string list if value contains multiple elements
-                print(query_params)
 
                 url = update_url_listparams(url, query_params)
-                print(url)
-            # print(url)
             return self.get("/" + url, **cache_args)
         if not isinstance(id, str) and id is not None:
             id = str(id)  # e.g. may be uuid.UUID

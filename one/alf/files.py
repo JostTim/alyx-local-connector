@@ -24,12 +24,21 @@ from pathlib import Path
 import logging
 
 from . import spec
-from .spec import SESSION_SPEC, COLLECTION_SPEC, FILE_SPEC, REL_PATH_SPEC, FULL_ABSOLUTE_SPEC, SESSION_ABSOLUTE_SPEC, FOLDER_SPEC , FULL_FOLDER_SPEC
+from .spec import (
+    SESSION_SPEC,
+    COLLECTION_SPEC,
+    FILE_SPEC,
+    REL_PATH_SPEC,
+    FULL_ABSOLUTE_SPEC,
+    SESSION_ABSOLUTE_SPEC,
+    FOLDER_SPEC,
+    FULL_FOLDER_SPEC,
+)
 
 _logger = logging.getLogger(__name__)
 
 
-def rel_path_parts(rel_path, as_dict=False, assert_valid=True):
+def rel_path_parts(rel_path, as_dict=False, assert_valid=True) -> [dict, tuple]:
     """Parse a relative path into the relevant parts.
 
     A relative path follows the pattern
@@ -79,7 +88,8 @@ def absolute_full_path_parts(session_path, as_dict=False, assert_valid=True):
     """
     return _path_parts(session_path, FULL_ABSOLUTE_SPEC, False, as_dict, assert_valid)
 
-def session_path_parts(session_path, as_dict=False, assert_valid=True, absolute = False):
+
+def session_path_parts(session_path, as_dict=False, assert_valid=True, absolute=False):
     """Parse a session path into the relevant parts.
 
     Return keys:
@@ -110,11 +120,11 @@ def session_path_parts(session_path, as_dict=False, assert_valid=True, absolute 
     ValueError
         Invalid ALF session path (assert_valid is True)
     """
-    if absolute : 
+    if absolute:
         spec_pattern = SESSION_ABSOLUTE_SPEC
-    else :
+    else:
         spec_pattern = SESSION_SPEC
-        
+
     return _path_parts(session_path, spec_pattern, False, as_dict, assert_valid)
 
 
@@ -142,7 +152,7 @@ def _path_parts(path, spec_str, match=True, as_dict=False, assert_valid=True):
     ValueError
         Invalid ALF path (assert_valid is True)
     """
-    if hasattr(path, 'as_posix'):
+    if hasattr(path, "as_posix"):
         path = path.as_posix()
     pattern = spec.regex(spec_str)
     empty = OrderedDict.fromkeys(pattern.groupindex.keys())
@@ -214,7 +224,9 @@ def filename_parts(filename, as_dict=False, assert_valid=True) -> Union[dict, tu
     return _path_parts(filename, FILE_SPEC, True, as_dict, assert_valid)
 
 
-def full_path_parts(path, as_dict=False, assert_valid=True, absolute = False) -> Union[dict, tuple]:
+def full_path_parts(
+    path, as_dict=False, assert_valid=True, absolute=False
+) -> Union[dict, tuple]:
     """Parse all filename and folder parts.
 
     Parameters
@@ -261,22 +273,27 @@ def full_path_parts(path, as_dict=False, assert_valid=True, absolute = False) ->
     # NB We try to determine whether we have a folder or filename path.  Filenames contain at
     # least two periods, however it is currently permitted to have any number of periods in a
     # collection, making the ALF path ambiguous.
-    #if sum(x == '.' for x in path.name) < 2:  # folder only
+    # if sum(x == '.' for x in path.name) < 2:  # folder only
     #    folders = folder_parts(path, as_dict, assert_valid, absolute = absolute)
     #    dataset = filename_parts('', as_dict, assert_valid=False)
-    if '/' not in path.as_posix() and '\\' not in path.as_posix():  # filename only
-        folders = folder_parts('', as_dict, assert_valid=False, absolute = absolute)
+    if "/" not in path.as_posix() and "\\" not in path.as_posix():  # filename only
+        folders = folder_parts("", as_dict, assert_valid=False, absolute=absolute)
         dataset = filename_parts(path.name, as_dict, assert_valid)
     else:  # full filepath
-        folders = folder_parts(path.parent, as_dict, assert_valid, absolute = absolute)
+        folders = folder_parts(path.parent, as_dict, assert_valid, absolute=absolute)
         dataset = filename_parts(path.name, as_dict, assert_valid)
     if as_dict:
-        return {key : value if value is not None else "" for key, value in OrderedDict(**folders, **dataset).items()}
+        return {
+            key: value if value is not None else ""
+            for key, value in OrderedDict(**folders, **dataset).items()
+        }
     else:
         return folders + dataset
 
 
-def folder_parts(folder_path, as_dict=False, assert_valid=True, absolute = False) -> Union[dict, tuple]:
+def folder_parts(
+    folder_path, as_dict=False, assert_valid=True, absolute=False
+) -> Union[dict, tuple]:
     """Parse all folder parts, including session, collection and revision.
 
     Parameters
@@ -310,13 +327,13 @@ def folder_parts(folder_path, as_dict=False, assert_valid=True, absolute = False
     ValueError
         Invalid ALF path (assert_valid is True)
     """
-    if hasattr(folder_path, 'as_posix'):
+    if hasattr(folder_path, "as_posix"):
         folder_path = folder_path.as_posix()
-    if folder_path and folder_path[-1] != '/':  # Slash required for regex pattern
-        folder_path = folder_path + '/'
-    if absolute : 
+    if folder_path and folder_path[-1] != "/":  # Slash required for regex pattern
+        folder_path = folder_path + "/"
+    if absolute:
         spec_str = FULL_FOLDER_SPEC + "$"
-    else :
+    else:
         spec_str = FOLDER_SPEC + "$"
     return _path_parts(folder_path, spec_str, False, as_dict, assert_valid)
 
@@ -324,7 +341,7 @@ def folder_parts(folder_path, as_dict=False, assert_valid=True, absolute = False
 def _isdatetime(s: str) -> bool:
     """Returns True if input is valid ISO date string"""
     try:
-        datetime.strptime(s, '%Y-%m-%d')
+        datetime.strptime(s, "%Y-%m-%d")
         return True
     except ValueError:
         return False
@@ -355,8 +372,8 @@ def get_session_path(path: Union[str, Path]) -> Optional[Path]:
     sess = None
     for i, p in enumerate(path.parts):
         if p.isdigit() and _isdatetime(path.parts[i - 1]):
-            sess = Path().joinpath(*path.parts[:i + 1])
-    
+            sess = Path().joinpath(*path.parts[: i + 1])
+
     return sess
 
 
@@ -389,18 +406,22 @@ def get_alf_path(path: Union[str, Path]) -> str:
     """
     if not isinstance(path, str):
         path = Path(path).as_posix()
-    path = path.strip('/')
+    path = path.strip("/")
 
     # Check if session path
     match_session = spec.regex(SESSION_SPEC).search(path)
     if match_session:
-        return path[match_session.start():]
+        return path[match_session.start() :]
 
     # Check if filename / relative path (i.e. collection + filename)
-    parts = path.rsplit('/', 1)
+    parts = path.rsplit("/", 1)
     match_filename = spec.regex(FILE_SPEC).match(parts[-1])
     if match_filename:
-        return path if spec.regex(f'{COLLECTION_SPEC}{FILE_SPEC}').match(path) else parts[-1]
+        return (
+            path
+            if spec.regex(f"{COLLECTION_SPEC}{FILE_SPEC}").match(path)
+            else parts[-1]
+        )
 
 
 def add_uuid_string(file_path, uuid):
@@ -420,13 +441,13 @@ def add_uuid_string(file_path, uuid):
         A new Path object with a UUID in the filename
     """
     if isinstance(uuid, str) and not spec.is_uuid_string(uuid):
-        raise ValueError('Should provide a valid UUID v4')
+        raise ValueError("Should provide a valid UUID v4")
     uuid = str(uuid)
     # NB: Only instantiate as Path if not already a Path, otherwise we risk changing the class
     if isinstance(file_path, str):
         file_path = Path(file_path)
-    name_parts = file_path.stem.split('.')
+    name_parts = file_path.stem.split(".")
     if uuid == name_parts[-1]:
-        _logger.warning(f'UUID already found in file name: {file_path.name}: IGNORE')
+        _logger.warning(f"UUID already found in file name: {file_path.name}: IGNORE")
         return file_path
     return file_path.parent.joinpath(f"{'.'.join(name_parts)}.{uuid}{file_path.suffix}")

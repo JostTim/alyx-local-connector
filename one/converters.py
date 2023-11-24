@@ -45,6 +45,7 @@ def recurse(func):
     function
         The decorated method
     """
+
     @functools.wraps(func)
     def wrapper_decorator(*args, **kwargs):
         if len(args) <= 1:
@@ -55,6 +56,7 @@ def recurse(func):
             return [func(obj, item, *args[2:], **kwargs) for item in first]
         else:
             return func(obj, first, *args[2:], **kwargs)
+
     return wrapper_decorator
 
 
@@ -66,19 +68,20 @@ def parse_values(func):
     >>> parse_values(lambda x: x)({'date': '2020-01-01', 'sequence': '001'}, parse=True)
     {'date': datetime.date(2020, 1, 1), 'sequence': 1}
     """
+
     def parse_ref(ref):
         if ref:
-            if isinstance(ref['date'], str):
-                if len(ref['date']) == 10:
-                    ref['date'] = datetime.date.fromisoformat(ref['date'])
+            if isinstance(ref["date"], str):
+                if len(ref["date"]) == 10:
+                    ref["date"] = datetime.date.fromisoformat(ref["date"])
                 else:
-                    ref['date'] = datetime.datetime.fromisoformat(ref['date']).date()
-            ref['sequence'] = int(ref['sequence'])
+                    ref["date"] = datetime.datetime.fromisoformat(ref["date"]).date()
+            ref["sequence"] = int(ref["sequence"])
         return ref
 
     @functools.wraps(func)
     def wrapper_decorator(*args, **kwargs):
-        parse = kwargs.pop('parse', True)
+        parse = kwargs.pop("parse", True)
         ref = func(*args, **kwargs)
         if not parse or isinstance(ref, str):
             return ref
@@ -86,6 +89,7 @@ def parse_values(func):
             return list(map(parse_ref, ref))
         else:
             return parse_ref(ref)
+
     return wrapper_decorator
 
 
@@ -97,9 +101,11 @@ class ConversionMixin:
         self._par = None
 
     @recurse
-    def to_eid(self,
-               id: Listable(Union[str, Path, UUID, dict]) = None,
-               cache_dir: Optional[Union[str, Path]] = None) -> Listable(str):
+    def to_eid(
+        self,
+        id: Listable(Union[str, Path, UUID, dict]) = None,
+        cache_dir: Optional[Union[str, Path]] = None,
+    ) -> Listable(str):
         """Given any kind of experiment identifier, return a corresponding eid string.
 
         NB: Currently does not support integer IDs.
@@ -131,13 +137,15 @@ class ConversionMixin:
         elif self.is_exp_ref(id):
             return self.ref2eid(id)
         elif isinstance(id, dict):
-            assert {'subject', 'number', 'lab'}.issubset(id)
+            assert {"subject", "number", "lab"}.issubset(id)
             root = Path(cache_dir or self.cache_dir)
             id = root.joinpath(
-                id['lab'],
-                'Subjects', id['subject'],
-                str(id.get('date') or id['start_time'][:10]),
-                ('%03d' % id['number']))
+                id["lab"],
+                "Subjects",
+                id["subject"],
+                str(id.get("date") or id["start_time"][:10]),
+                ("%03d" % id["number"]),
+            )
 
         if isinstance(id, Path):
             return self.path2eid(id)
@@ -147,11 +155,11 @@ class ConversionMixin:
             if len(id) > 36:
                 id = id[-36:]
             if not is_uuid_string(id):
-                raise ValueError('Invalid experiment ID')
+                raise ValueError("Invalid experiment ID")
             else:
                 return id
         else:
-            raise ValueError('Unrecognized experiment ID')
+            raise ValueError("Unrecognized experiment ID")
 
     @recurse
     def eid2path(self, eid: str) -> Optional[Listable(Path)]:
@@ -171,15 +179,15 @@ class ConversionMixin:
         # If not valid return None
         if not is_uuid_string(eid):
             raise ValueError(eid + " is not a valid eID/UUID string")
-        if self._cache['sessions'].size == 0:
+        if self._cache["sessions"].size == 0:
             return
 
         # load path from cache
         if self._index_type() is int:
             eid = parquet.str2np(eid).tolist()
         try:
-            ses = self._cache['sessions'].loc[eid].squeeze()
-            assert isinstance(ses, pd.Series), 'Duplicate eids in sessions table'
+            ses = self._cache["sessions"].loc[eid].squeeze()
+            assert isinstance(ses, pd.Series), "Duplicate eids in sessions table"
             return session_record2path(ses.to_dict(), self.cache_dir)
         except KeyError:
             return
@@ -201,7 +209,7 @@ class ConversionMixin:
         """
         # else ensure the path ends with mouse,date, number
         session_path = get_session_path(path_obj)
-        sessions = self._cache['sessions']
+        sessions = self._cache["sessions"]
 
         # if path does not have a date and a number, or cache is empty return None
         if session_path is None or sessions.size == 0:
@@ -210,14 +218,16 @@ class ConversionMixin:
         # reduce session records from cache
         toDate = datetime.date.fromisoformat
         subject, date, number = session_path.parts[-3:]
-        for col, val in zip(('subject', 'date', 'number'), (subject, toDate(date), int(number))):
+        for col, val in zip(
+            ("subject", "date", "number"), (subject, toDate(date), int(number))
+        ):
             sessions = sessions[sessions[col] == val]
             if sessions.size == 0:
                 return
 
         assert len(sessions) == 1
 
-        eid, = sessions.index.values
+        (eid,) = sessions.index.values
         if isinstance(eid, tuple):
             eid = parquet.np2str(np.array(eid))
         return eid
@@ -239,7 +249,7 @@ class ConversionMixin:
             A cache file record
         """
         is_session = is_session_path(path)
-        rec = self._cache['sessions' if is_session else 'datasets']
+        rec = self._cache["sessions" if is_session else "datasets"]
         if rec.empty:
             return
         # if (rec := self._cache['datasets']).empty:  # py 3.8
@@ -248,16 +258,17 @@ class ConversionMixin:
         if is_session_path(path):
             lab, subject, date, number = session_path_parts(path)
             rec = rec[
-                (rec['lab'] == lab) & (rec['subject'] == subject) &
-                (rec['number'] == int(number)) &
-                (rec['date'] == datetime.date.fromisoformat(date))
+                (rec["lab"] == lab)
+                & (rec["subject"] == subject)
+                & (rec["number"] == int(number))
+                & (rec["date"] == datetime.date.fromisoformat(date))
             ]
             return None if rec.empty else rec.squeeze()
 
         # Deal with file path
-        if isinstance(path, str) and path.startswith('http'):
+        if isinstance(path, str) and path.startswith("http"):
             # Remove the UUID from path
-            path = urlsplit(path).path.strip('/')
+            path = urlsplit(path).path.strip("/")
             path = alfio.remove_uuid_file(PurePosixPath(path), dry=True)
             session_path = get_session_path(path).as_posix()
         else:
@@ -268,9 +279,9 @@ class ConversionMixin:
                 return
             session_path, *_ = session_series
 
-        rec = rec[rec['session_path'] == session_path]
-        rec = rec[rec['rel_path'].apply(lambda x: path.as_posix().endswith(x))]
-        assert len(rec) < 2, 'Multiple records found'
+        rec = rec[rec["session_path"] == session_path]
+        rec = rec[rec["rel_path"].apply(lambda x: path.as_posix().endswith(x))]
+        assert len(rec) < 2, "Multiple records found"
         return None if rec.empty else rec.squeeze()
 
     @recurse
@@ -308,24 +319,26 @@ class ConversionMixin:
         str, list
             A dataset URL or list if input is DataFrame
         """
-        webclient = getattr(self, '_web_client', False)
-        assert webclient, 'No Web client found for instance'
+        webclient = getattr(self, "_web_client", False)
+        assert webclient, "No Web client found for instance"
         # FIXME Should be OneAlyx converter only
         if isinstance(record, pd.DataFrame):
             return [self.record2url(r) for _, r in record.iterrows()]
         if isinstance(record, pd.Series):
-            is_session_record = 'rel_path' not in record
+            is_session_record = "rel_path" not in record
             if is_session_record:
                 # NB: This assumes the root path is in the webclient URL
-                session_spec = '{lab}/Subjects/{subject}/{date}/{number:03d}'
-                url = record.get('session_path') or session_spec.format(**record)
+                session_spec = "{lab}/Subjects/{subject}/{date}/{number:03d}"
+                url = record.get("session_path") or session_spec.format(**record)
                 return webclient.rel_path2url(url)
             if all(isinstance(x, (int, np.int64)) for x in record.name):
-                uuid, = parquet.np2str(np.array([record.name[-2:]]))
+                (uuid,) = parquet.np2str(np.array([record.name[-2:]]))
             else:
                 uuid = ensure_list(record.name)[-1]  # may be (eid, did) or simply did
 
-        session_path, rel_path = record[['session_path', 'rel_path']].to_numpy().flatten()
+        session_path, rel_path = (
+            record[["session_path", "rel_path"]].to_numpy().flatten()
+        )
         url = PurePosixPath(session_path, rel_path)
         return webclient.rel_path2url(add_uuid_string(url, uuid).as_posix())
 
@@ -345,13 +358,16 @@ class ConversionMixin:
             File path for the record
         """
         assert isinstance(dataset, pd.Series) or len(dataset) == 1
-        session_path, rel_path = dataset[['session_path', 'rel_path']].to_numpy().flatten()
+        session_path, rel_path = (
+            dataset[["session_path", "rel_path"]].to_numpy().flatten()
+        )
         file = Path(self.cache_dir, session_path, rel_path)
         return file  # files[0] if len(datasets) == 1 else files
 
     @recurse
-    def eid2ref(self, eid: Union[str, Iter], as_dict=True, parse=True) \
-            -> Union[str, Mapping, List]:
+    def eid2ref(
+        self, eid: Union[str, Iter], as_dict=True, parse=True
+    ) -> Union[str, Mapping, List]:
         """
         Get human-readable session ref from path
 
@@ -388,13 +404,15 @@ class ConversionMixin:
         """
         d = self.get_details(eid)
         if parse:
-            ref = {'subject': d['subject'], 'date': d['date'], 'sequence': d['number']}
-            format_str = '{date:%Y-%m-%d}_{sequence:d}_{subject:s}'
+            ref = {"subject": d["subject"], "date": d["date"], "sequence": d["number"]}
+            format_str = "{date:%Y-%m-%d}_{sequence:d}_{subject:s}"
         else:
             ref = {
-                'subject': d['subject'], 'date': str(d['date']), 'sequence': '%03d' % d['number']
+                "subject": d["subject"],
+                "date": str(d["date"]),
+                "sequence": "%03d" % d["number"],
             }
-            format_str = '{date:s}_{sequence:s}_{subject:s}'
+            format_str = "{date:s}_{sequence:s}_{subject:s}"
         return Bunch(ref) if as_dict else format_str.format(**ref)
 
     @recurse
@@ -427,10 +445,9 @@ class ConversionMixin:
         """
         ref = self.ref2dict(ref, parse=False)  # Ensure dict
         session = self.search(
-            subject=ref['subject'],
-            date_range=str(ref['date']),
-            number=ref['sequence'])
-        assert len(session) == 1, 'session not found'
+            subject=ref["subject"], date_range=str(ref["date"]), number=ref["sequence"]
+        )
+        assert len(session) == 1, "session not found"
         return session[0]
 
     @recurse
@@ -498,11 +515,15 @@ class ConversionMixin:
         """
         if isinstance(path_str, (list, tuple)):
             return [unwrap(ConversionMixin.path2ref)(x) for x in path_str]
-        pattern = r'(?P<subject>[\w-]+)([\\/])(?P<date>\d{4}-\d{2}-\d{2})(\2)(?P<sequence>\d{3})'
+        pattern = r"(?P<subject>[\w-]+)([\\/])(?P<date>\d{4}-\d{2}-\d{2})(\2)(?P<sequence>\d{3})"
         match = re.search(pattern, str(path_str))
         if match:
             ref = match.groupdict()
-            return Bunch(ref) if as_dict else '{date:s}_{sequence:s}_{subject:s}'.format(**ref)
+            return (
+                Bunch(ref)
+                if as_dict
+                else "{date:s}_{sequence:s}_{subject:s}".format(**ref)
+            )
 
     def ref2dj(self, ref: Union[str, Mapping, Iter]):
         """
@@ -534,9 +555,11 @@ class ConversionMixin:
         2
         """
         from ibl_pipeline import subject, acquisition
-        sessions = acquisition.Session.proj('session_number',
-                                            session_date='date(session_start_time)')
-        sessions = sessions * subject.Subject.proj('subject_nickname')
+
+        sessions = acquisition.Session.proj(
+            "session_number", session_date="date(session_start_time)"
+        )
+        sessions = sessions * subject.Subject.proj("subject_nickname")
 
         ref = self.ref2dict(ref)  # Ensure dict-like
 
@@ -544,9 +567,10 @@ class ConversionMixin:
         def restrict(r):
             date, sequence, subject = dict(sorted(r.items())).values()  # Unpack sorted
             restriction = {
-                'subject_nickname': subject,
-                'session_number': sequence,
-                'session_date': date}
+                "subject_nickname": subject,
+                "session_number": sequence,
+                "session_date": date,
+            }
             return restriction
 
         return sessions & restrict(ref)
@@ -580,19 +604,17 @@ class ConversionMixin:
         if isinstance(ref, (list, tuple)):
             return [ConversionMixin.is_exp_ref(x) for x in ref]
         if isinstance(ref, (Bunch, dict)):
-            if not {'subject', 'date', 'sequence'}.issubset(ref):
+            if not {"subject", "date", "sequence"}.issubset(ref):
                 return False
-            ref = '{date}_{sequence}_{subject}'.format(**ref)
+            ref = "{date}_{sequence}_{subject}".format(**ref)
         elif not isinstance(ref, str):
             return False
-        return re.compile(r'\d{4}(-\d{2}){2}_(\d{1}|\d{3})_\w+').match(ref) is not None
+        return re.compile(r"\d{4}(-\d{2}){2}_(\d{1}|\d{3})_\w+").match(ref) is not None
 
     @staticmethod
-    def path2refpath(path : str) -> str :
-        
+    def path2refpath(path: str) -> str:
         ALYX_PATH_EID = r"\w+(?:\\|\/)\d{4}\-\d{2}\-\d{2}(?:\\|\/)\d{3}"
-        return re.findall(ALYX_PATH_EID,path)[0]
-        
+        return re.findall(ALYX_PATH_EID, path)[0]
 
     @staticmethod
     @parse_values
@@ -624,7 +646,7 @@ class ConversionMixin:
             return [ConversionMixin.ref2dict(x) for x in ref]
         if isinstance(ref, (Bunch, dict)):
             return Bunch(ref)  # Short circuit
-        ref = dict(zip(['date', 'sequence', 'subject'], ref.split('_', 2)))
+        ref = dict(zip(["date", "sequence", "subject"], ref.split("_", 2)))
         return Bunch(ref)
 
     @staticmethod
@@ -647,9 +669,11 @@ class ConversionMixin:
         if not ref_dict:
             return
         parsed = any(not isinstance(k, str) for k in ref_dict.values())
-        format_str = ('{date:%Y-%m-%d}_{sequence:d}_{subject:s}'
-                      if parsed
-                      else '{date:s}_{sequence:s}_{subject:s}')
+        format_str = (
+            "{date:%Y-%m-%d}_{sequence:d}_{subject:s}"
+            if parsed
+            else "{date:s}_{sequence:s}_{subject:s}"
+        )
         return format_str.format(**ref_dict)
 
 
@@ -673,7 +697,7 @@ def one_path_from_dataset(dset, one_cache):
     return path_from_dataset(dset, root_path=one_cache, uuid=False)
 
 
-def path_from_dataset(dset, root_path=PurePosixPath('/'), repository=None, uuid=False):
+def path_from_dataset(dset, root_path=PurePosixPath("/"), repository=None, uuid=False):
     """
     Returns the local file path from a dset record from a REST query.
     Unlike `to_eid`, this function does not require ONE, and the dataset may not exist.
@@ -698,14 +722,16 @@ def path_from_dataset(dset, root_path=PurePosixPath('/'), repository=None, uuid=
     if isinstance(dset, list):
         return [path_from_dataset(d) for d in dset]
     if repository:
-        fr = next((fr for fr in dset['file_records'] if fr['data_repository'] == repository))
+        fr = next(
+            (fr for fr in dset["file_records"] if fr["data_repository"] == repository)
+        )
     else:
-        fr = next((fr for fr in dset['file_records'] if fr['data_url']))
-    uuid = dset['url'][-36:] if uuid else None
+        fr = next((fr for fr in dset["file_records"] if fr["data_url"]))
+    uuid = dset["url"][-36:] if uuid else None
     return path_from_filerecord(fr, root_path=root_path, uuid=uuid)
 
 
-def path_from_filerecord(fr, root_path=PurePosixPath('/'), uuid=None):
+def path_from_filerecord(fr, root_path=PurePosixPath("/"), uuid=None):
     """
     Returns a data file Path constructed from an Alyx file record.  The Path type returned
     depends on the type of root_path: If root_path is a string a Path object is returned,
@@ -727,10 +753,10 @@ def path_from_filerecord(fr, root_path=PurePosixPath('/'), uuid=None):
     """
     if isinstance(fr, list):
         return [path_from_filerecord(f) for f in fr]
-    repo_path = fr['data_repository_path']
-    repo_path = repo_path[repo_path.startswith('/'):]  # remove starting / if any
+    repo_path = fr["data_repository_path"]
+    repo_path = repo_path[repo_path.startswith("/") :]  # remove starting / if any
     # repo_path = (p := fr['data_repository_path'])[p[0] == '/':]  # py3.8 Remove slash at start
-    file_path = PurePosixPath(repo_path, fr['relative_path'])
+    file_path = PurePosixPath(repo_path, fr["relative_path"])
     if root_path:
         # NB: By checking for string we won't cast any PurePaths
         if isinstance(root_path, str):
@@ -771,9 +797,11 @@ def session_record2path(session, root_dir=None):
     Path('/home/user/foo/Subjects/ALK01/2020-01-01/001')
     """
     rel_path = PurePosixPath(
-        session.get('lab') if session.get('lab') else '',
-        'Subjects' if session.get('lab') else '',
-        session['subject'], str(session['date']), str(session['number']).zfill(3)
+        session.get("lab") if session.get("lab") else "",
+        "Subjects" if session.get("lab") else "",
+        session["subject"],
+        str(session["date"]),
+        str(session["number"]).zfill(3),
     )
     if not root_dir:
         return rel_path
