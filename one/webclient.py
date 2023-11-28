@@ -510,7 +510,7 @@ class AlyxClient:
     """str: The Alyx username"""
     user = None
     """str: The Alyx database URL"""
-    base_url = None
+    base_url: None | str = None
 
     def __init__(
         self,
@@ -547,7 +547,9 @@ class AlyxClient:
         self._par = one.params.get(
             client=base_url, silent=self.silent, username=username
         )
+
         self.base_url = base_url or self._par.ALYX_URL
+
         self._par = self._par.set("CACHE_DIR", cache_dir or self._par.CACHE_DIR)
         if username or password:
             self.authenticate(username, password)
@@ -701,6 +703,7 @@ class AlyxClient:
             password = getattr(self._par, "ALYX_PWD", None)
         if password is None and not self.silent:
             password = getpass(f'Enter Alyx password for "{username}":')
+
         try:
             credentials = {"username": username, "password": password}
             rep = requests.post(self.base_url + "/auth-token", data=credentials)
@@ -1201,7 +1204,11 @@ class AlyxClient:
                 # kwargs["django"] = f"{kwargs['django']}pk,{id}"
                 # we remove all other filters from kwargs, as selecting by id is already all or none
                 if len(
-                    excedent_keys := [key for key in kwargs.keys() if key != "django"]
+                    excedent_keys := [
+                        key
+                        for key in kwargs.keys()
+                        if key != "django" and key != "query_type"
+                    ]
                 ):
                     _logger.warning(
                         f"Some fields, {excedent_keys} have been supplied by the user, but an id is present in the list search. These fields have been discarded."

@@ -15,13 +15,15 @@ import pathlib
 import uuid
 from pathlib import Path, PurePosixPath
 import datetime
-import logging
+from logging import getLogger
 from uuid import UUID
 import itertools
 from collections import defaultdict
 from fnmatch import fnmatch
 import pandas as pd
 import os
+
+from typing import Dict, List
 
 import requests.exceptions
 
@@ -39,8 +41,6 @@ from .alf.exceptions import AlyxSubjectNotFound, ALFError
 from .util import ensure_list
 from .webclient import no_cache
 from .params import get as get_one_params
-
-_logger = logging.getLogger(__name__)
 
 
 class RegistrationClient:
@@ -85,13 +85,14 @@ class RegistrationClient:
         list of dicts
             Alyx session records
         """
+        logger = getLogger("registration.create_sessions")
         flag_files = list(Path(root_data_folder).glob(glob_pattern))
         records = []
         for flag_file in flag_files:
             if dry:
                 records.append(print(flag_file))
                 continue
-            _logger.info("creating session for " + str(flag_file.parent))
+            logger.info("creating session for " + str(flag_file.parent))
             # providing a false flag stops the registration after session creation
             records.append(self.create_session(flag_file.parent))
             flag_file.unlink()
@@ -316,6 +317,9 @@ class RegistrationClient:
         ConnectionError
             Failed to connect to Alyx, most likely due to a bad internet connection.
         """
+
+        logger = getLogger("registration.register_session")
+
         if isinstance(ses_path, str):
             ses_path = Path(ses_path)
         details = session_path_parts(
@@ -373,7 +377,7 @@ class RegistrationClient:
                 "sessions", "update", id=session_id[0], data=ses_
             )
 
-        _logger.info(session["url"] + " ")
+        logger.info(session["url"] + " ")
         # at this point the session has been created. If create only, exit
         if not file_list:
             return session, None
@@ -422,6 +426,9 @@ class RegistrationClient:
         list of dicts, dict
             A list of newly created Alyx dataset records or the registration data if dry
         """
+
+        logger = getLogger("registration.register_files_legacy")
+
         F = defaultdict(list)  # empty map whose keys will be session paths
         V = defaultdict(list)  # empty map for versions
         if isinstance(file_list, (str, pathlib.Path)):
@@ -436,7 +443,7 @@ class RegistrationClient:
         for fn, ver in zip(map(pathlib.Path, file_list), versions):
             session_path = get_session_path(fn)
             if fn.suffix not in self.file_extensions:
-                _logger.debug(f'{fn}: No matching extension "{fn.suffix}" in database')
+                logger.debug(f'{fn}: No matching extension "{fn.suffix}" in database')
                 continue
             type_match = [
                 x["name"]
@@ -444,10 +451,10 @@ class RegistrationClient:
                 if fnmatch(fn.name, x["filename_pattern"] or "")
             ]
             if len(type_match) == 0:
-                _logger.debug(f"{fn}: No matching dataset type in database")
+                logger.debug(f"{fn}: No matching dataset type in database")
                 continue
             elif len(type_match) != 1:
-                _logger.debug(
+                logger.debug(
                     f"{fn}: Multiple matching dataset types in database\n"
                     '"' + '", "'.join(type_match) + '"'
                 )
@@ -475,7 +482,7 @@ class RegistrationClient:
                 for fn, sz in zip(files, file_sizes)
             ]
 
-            _logger.info("Registering " + str(files))
+            logger.info("Registering " + str(files))
 
             r_ = {
                 "created_by": created_by or self.one.alyx.user,
@@ -495,16 +502,18 @@ class RegistrationClient:
             # If dry, store POST data, otherwise store resulting file records
             records.append(r_ if dry else self.one.alyx.post("/register-file", data=r_))
             # Log file names
-            _logger.info(f'ALYX REGISTERED DATA {"!DRY!" if dry else ""}: {rel_path}')
+            logger.info(f'ALYX REGISTERED DATA {"!DRY!" if dry else ""}: {rel_path}')
             for p in files:
-                _logger.info(f"ALYX REGISTERED DATA: {p}")
+                logger.info(f"ALYX REGISTERED DATA: {p}")
 
         return records[0] if len(F.keys()) == 1 else records
 
     def files(self, session, file_list, check_file_exist=False, repository_name=None):
+        logger = getLogger("registration.files")
+
         dataset_groups = self.group_files_by_dataset(file_list)
 
-        # name of the session pd.series is the database session id
+        # name of the session pd.series is the database session id (aka primary key or pk)
         session_id = session.name
 
         self.assert_single_repo(file_list)
@@ -528,15 +537,22 @@ class RegistrationClient:
             # make them relative to the session as make_homogeneous_dataset requires that to process them.
 
             new_dataset = self.make_homogeneous_dataset(
-                files_list, session_id, repository_name, dry=False
+                files_list, session, repository_name, dry=False
             )
             self.add_files_to_homogeneous_dataset(files_list, new_dataset, dry=False)
+
+        # update the session object to contain info about the new registered data from the remote database
 
         new_session_data = self.one.search(
             id=session_id, no_cache=True, details=True
         ).iloc[0]
 
-        session["data_dataset_session_related"].update(
+        # we touch the list object that is inside the data_dataset_session_related key of session
+        # we cannot change the cell directly as session is a dataframe view.
+        # first we clear
+        session["data_dataset_session_related"].clear()
+        # then we add new data
+        session["data_dataset_session_related"].extend(
             new_session_data["data_dataset_session_related"]
         )
 
@@ -651,7 +667,16 @@ class RegistrationClient:
         }
         return self.one.alyx.rest("weighings", "create", data=wei_)
 
-    def group_files_by_dataset(self, files_list):
+    def group_files_by_dataset(self, files_list: List[str]) -> Dict[str, pd.DataFrame]:
+        """_summary_
+
+        Args:
+            files_list (List[str]): _description_
+
+        Returns:
+            Dict[str, pd.DataFrame]: The outputs datasets groups.
+                Each key of the output dictionnary is the name of a dataset ("object.attribute") and each value is a group of
+        """
         results = [
             full_path_parts(file, as_dict=True, assert_valid=False, absolute=True)
             for file in files_list
@@ -672,19 +697,11 @@ class RegistrationClient:
 
         return groups
 
-    def make_homogeneous_dataset(self, files, session_id, repository_name, dry=True):
-        logger = _logger
+    def make_homogeneous_dataset(self, files, session, repository_name, dry=True):
+        logger = getLogger("registration.make_homogeneous_dataset")
 
         # repo_path = cnx.get_data_repository_path(repository_name)
-        session_eid = self.one.to_eid(session_id)
-        if session_eid is None:
-            raise ValueError(
-                f"The session {self.one.path2ref(session_id, as_dict = False)} doesn't seem to exist"
-            )
-        session_details = self.one.to_session_details(
-            self.one.alyx.rest("sessions", "read", session_eid, no_cache=True),
-            as_mode="remote",
-        )
+        session_eid = session.name
 
         # Verify all goes well for a batch of alf file
         common_alf_type = {}
@@ -724,7 +741,7 @@ class RegistrationClient:
                     )
                 if alf_type["extension"] != common_alf_type["extension"]:
                     raise ValueError(
-                        "Registering several files under a same dataset require them having the same extension (second name before dot)"
+                        "Registering several files under a same dataset require them having the same extension"
                     )
             else:
                 common_alf_type = rel_path_parts(
@@ -741,12 +758,12 @@ class RegistrationClient:
             + common_alf_type["attribute"],
             "data_format": "." + common_alf_type["extension"],
             "collection": common_alf_type["collection"],
-            "session_pk": session_details.name,
+            "session_pk": session_eid,
             "data_repository": repository_name,
         }
 
         non_accepted_matching_keys = ["dataset_type", "collection"]
-        for existing_dataset in session_details["data_dataset_session_related"]:
+        for existing_dataset in session["data_dataset_session_related"]:
             booleans = [
                 existing_dataset[key] == d[key] for key in non_accepted_matching_keys
             ]
@@ -755,7 +772,7 @@ class RegistrationClient:
                 all(booleans) is True
             ):  # all keys are matching, the dataset already exists, returning it.
                 logger.info(
-                    f"The dataset {d['collection']} - {d['dataset_type']} was already existing. Using it to attach files instead of creating a new one."
+                    f"The dataset {session['alias']} - {d['collection']+'/' if d['collection'] else ''}{d['dataset_type']} was already existing. Using it to attach files instead of creating a new one."
                 )
                 return existing_dataset
 
@@ -769,7 +786,7 @@ class RegistrationClient:
         return new_dataset
 
     def add_files_to_homogeneous_dataset(self, files, dataset_dict, dry=True):
-        logger = _logger
+        logger = getLogger("registration.add_files_to_homogeneous_dataset")
 
         existing_files = []
         if dataset_dict is None:
@@ -779,11 +796,11 @@ class RegistrationClient:
                 )
 
         else:
-            logger.debug("dataset_dict : " + str(dataset_dict))
+            logger.debug("loading files : " + str(dataset_dict))
             try:
                 existing_files = self.one.alyx.rest(
-                    "datasets", "read", dataset_dict["id"], no_cache=True
-                )["file_records"]
+                    "files", "list", dataset=dataset_dict["id"], no_cache=True
+                )
             except KeyError:
                 pass
 
@@ -795,6 +812,9 @@ class RegistrationClient:
 
             if len(existing_files):
                 for ex_file in existing_files:
+                    logger.debug(
+                        f"Comparing {file} and existing {ex_file['relative_path']}"
+                    )
                     if file == ex_file["relative_path"]:
                         logger.error(
                             f"File {file} already exist in dataset, it was not added"
@@ -817,7 +837,7 @@ class RegistrationClient:
         return new_records
 
     def find_session_repo(self, files_list):
-        logger = _logger
+        logger = getLogger("registration.find_session_repo")
 
         root = os.path.normpath(
             session_path_parts(files_list[0], as_dict=True, absolute=True)["root"]
