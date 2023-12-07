@@ -335,6 +335,8 @@ class ConversionMixin:
                 (uuid,) = parquet.np2str(np.array([record.name[-2:]]))
             else:
                 uuid = ensure_list(record.name)[-1]  # may be (eid, did) or simply did
+        else:
+            raise ValueError("Could not determine uuid")
 
         session_path, rel_path = (
             record[["session_path", "rel_path"]].to_numpy().flatten()

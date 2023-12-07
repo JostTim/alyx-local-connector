@@ -36,7 +36,7 @@ from .alf.files import (
     full_path_parts,
     rel_path_parts,
 )
-from .alf.spec import to_full_path
+from .alf.spec import to_full_path, is_uuid_string
 from .alf.exceptions import AlyxSubjectNotFound, ALFError
 from .util import ensure_list
 from .webclient import no_cache
@@ -508,23 +508,54 @@ class RegistrationClient:
 
         return records[0] if len(F.keys()) == 1 else records
 
+    def check_files_match_session(self, session, file_list):
+        session_partial_path = os.path.join(
+            session.subject, session.date, str(session.number).zfill(3)
+        )
+        for file in file_list:
+            if session_partial_path not in file:
+                return False
+        return True
+
     def files(self, session, file_list, check_file_exist=False, repository_name=None):
         logger = getLogger("registration.files")
 
+        # checks that all files belong to the session supplied
+        files_status = self.check_files_match_session(session, file_list)
+        if not files_status:
+            raise ValueError(
+                "Some files in the list you provided do not belong to the session you provided."
+            )
+
         dataset_groups = self.group_files_by_dataset(file_list)
+
+        if repository_name is not None:
+            if len(dataset_groups.root.unique()) != 1:
+                raise ValueError(
+                    "If you supply repository_name manually, all files must have the same root"
+                )
 
         # name of the session pd.series is the database session id (aka primary key or pk)
         session_id = session.name
 
-        self.assert_single_repo(file_list)
-        repository_name = (
-            self.find_session_repo(file_list)
-            if repository_name is None
-            else repository_name
-        )
-
-        for group_name, group in dataset_groups.items():
+        for group_name, group in dataset_groups.groupby("dataset_name"):
             root_path = group.iloc[0]["root"]
+
+            # checks that all files have the same session repository
+            if len(group.root.unique()) != 1:
+                raise ValueError(
+                    f"The files belonging to the dataset {group_name} are not belonging to a single data repository (root) !"
+                )
+
+            root_path = group.iloc[0]["root"]
+
+            if repository_name is None:
+                repo_identifier = root_path
+            else:
+                repo_identifier = repository_name
+            repository = self.find_session_repo(repo_identifier)
+            repository_name = repository["name"]
+
             files_list = group.apply(lambda row: to_full_path(**row), axis=1).tolist()
 
             if check_file_exist:
@@ -536,10 +567,8 @@ class RegistrationClient:
             files_list = [os.path.relpath(file, start=root_path) for file in files_list]
             # make them relative to the session as make_homogeneous_dataset requires that to process them.
 
-            new_dataset = self.make_homogeneous_dataset(
-                files_list, session, repository_name, dry=False
-            )
-            self.add_files_to_homogeneous_dataset(files_list, new_dataset, dry=False)
+            new_dataset = self.make_dataset(files_list, session, repository_name)
+            self.add_files_to_dataset(files_list, new_dataset)
 
         # update the session object to contain info about the new registered data from the remote database
 
@@ -677,27 +706,31 @@ class RegistrationClient:
             Dict[str, pd.DataFrame]: The outputs datasets groups.
                 Each key of the output dictionnary is the name of a dataset ("object.attribute") and each value is a group of
         """
+
+        def make_dataset_name(row):
+            collection_name = row.collection + "/" if row.collection else ""
+            dataset_name = collection_name + ".".join([row.object, row.attribute])
+            return dataset_name
+
         results = [
             full_path_parts(file, as_dict=True, assert_valid=False, absolute=True)
             for file in files_list
         ]
         fileparts_df = pd.DataFrame(results)
 
-        groups = {}
-        for collection_name, collection_selection in fileparts_df.groupby(
-            "collection", dropna=False
-        ):
-            for file_names, files_collections in collection_selection.groupby(
-                ["object", "attribute"], dropna=False
-            ):
-                group_name = (
-                    collection_name + "/" if collection_name else ""
-                ) + ".".join(file_names)
-                groups[group_name] = files_collections
+        fileparts_df["full_path"] = fileparts_df.apply(
+            lambda row: to_full_path(**row), axis=1
+        )
+        fileparts_df["relative_path"] = fileparts_df.apply(
+            lambda row: to_full_path(**row.iloc[1:-1]), axis=1
+        )
+        fileparts_df["dataset_name"] = fileparts_df.apply(
+            make_dataset_name, axis="columns"
+        )
 
-        return groups
+        return fileparts_df
 
-    def make_homogeneous_dataset(self, files, session, repository_name, dry=True):
+    def make_dataset(self, files, session, repository_name):
         logger = getLogger("registration.make_homogeneous_dataset")
 
         # repo_path = cnx.get_data_repository_path(repository_name)
@@ -778,31 +811,25 @@ class RegistrationClient:
 
         # if it doesn't exist, create it
         logger.info(f"Registering dataset : {d}")
-        if not dry:
-            new_dataset = self.one.alyx.rest("datasets", "create", data=d)
-        else:
-            new_dataset = None
+
+        new_dataset = self.one.alyx.rest("datasets", "create", data=d)
 
         return new_dataset
 
-    def add_files_to_homogeneous_dataset(self, files, dataset_dict, dry=True):
+    def add_files_to_dataset(self, files, dataset_dict, dry=True):
         logger = getLogger("registration.add_files_to_homogeneous_dataset")
 
         existing_files = []
-        if dataset_dict is None:
-            if not dry:
-                raise ValueError(
-                    "The dataset_dict returned by make_homogeneous_empty_dataset_from_filelist before calling add_files_to_empty_homogeneous_dataset seemed to be None, and dry run was not set to True. Cannot proceed."
-                )
 
-        else:
-            logger.debug("loading files : " + str(dataset_dict))
-            try:
-                existing_files = self.one.alyx.rest(
+        logger.debug("loading files : " + str(dataset_dict))
+        try:
+            existing_files = list(
+                self.one.alyx.rest(
                     "files", "list", dataset=dataset_dict["id"], no_cache=True
                 )
-            except KeyError:
-                pass
+            )
+        except KeyError:
+            pass
 
         new_records = []
         for file in files:
@@ -810,17 +837,16 @@ class RegistrationClient:
 
             file_already_existing = False
 
-            if len(existing_files):
-                for ex_file in existing_files:
-                    logger.debug(
-                        f"Comparing {file} and existing {ex_file['relative_path']}"
+            for ex_file in existing_files:
+                logger.debug(
+                    f"Comparing {file} and existing {ex_file['relative_path']}"
+                )
+                if file == ex_file["relative_path"]:
+                    logger.error(
+                        f"File {file} already exist in dataset, it was not added"
                     )
-                    if file == ex_file["relative_path"]:
-                        logger.error(
-                            f"File {file} already exist in dataset, it was not added"
-                        )
-                        file_already_existing = True
-                        break
+                    file_already_existing = True
+                    break
 
             parts = full_path_parts(file, as_dict=True, absolute=False)
 
@@ -831,32 +857,55 @@ class RegistrationClient:
                     "exists": True,
                 }
                 logger.info(f"Registering file : {d}")
-                if not dry:
-                    new_file_record = self.one.alyx.rest("files", "create", data=d)
-                    new_records.append(new_file_record)
+
+                new_file_record = self.one.alyx.rest("files", "create", data=d)
+                new_records.append(new_file_record)
+
         return new_records
 
-    def find_session_repo(self, files_list):
+    def find_session_repo(self, repository_identifier: str):
         logger = getLogger("registration.find_session_repo")
+        repository_path = os.path.normpath(repository_identifier)
 
-        root = os.path.normpath(
-            session_path_parts(files_list[0], as_dict=True, absolute=True)["root"]
-        )
-        repository_name = None
-        for repo in self.one.alyx.rest("data-repository", "list", no_cache=True):
-            value = os.path.normpath(repo["data_path"])
-            if value == root:
-                repository_name = repo["name"]
-                logger.info(
-                    f"Found a common data-repository in the filepaths to use for registering : {repository_name}"
+        if is_uuid_string(repository_identifier):
+            try:
+                dataset = self.one.alyx.rest(
+                    "data-repository",
+                    "list",
+                    no_cache=True,
+                    id="05baa7e4-5eb5-4214-a008-c9e5331004b0",
+                )[0]
+            except IndexError:
+                raise ValueError(
+                    f"No dataset id corresponds to the identifier {repository_identifier}"
                 )
-                break
-        if repository_name is None:
-            raise ValueError(
-                "No existing data repository was found for the location of the files you are trying to register. Either check their location and move them, or add a new data repository"
-            )
+            return dataset
 
-        return repository_name
+        try:
+            dataset = self.one.alyx.rest(
+                "data-repository",
+                "list",
+                no_cache=True,
+                name=repository_identifier,
+            )[0]
+            return dataset
+        except IndexError:
+            pass
+
+        try:
+            dataset = self.one.alyx.rest(
+                "data-repository",
+                "list",
+                no_cache=True,
+                data_path=repository_identifier,
+            )[0]
+            return dataset
+        except IndexError:
+            pass
+
+        raise ValueError(
+            "No existing data repository was found for the location of the files you are trying to register. Either check their location and move them, or add a new data repository"
+        )
 
     def assert_single_repo(self, files_list):
         roots = set()

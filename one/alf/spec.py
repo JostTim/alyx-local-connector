@@ -8,83 +8,83 @@ from iblutil.util import flatten
 
 """dict: The ALF part names and their definitions."""
 SPEC_DESCRIPTION = {
-    'root' : 'The root path, extracted either from the repository registered in the Alyx database,'
-             ' or the local path provided by the user.',
-    'lab': 'The name of the lab where the data were collected (optional).',
-    'Subjects': 'An optional directory to indicate that the experiment data are divided by '
-                'subject.  If organizing by lab, this directory is required.',
-    'subject': 'The subject name, typically an arbitrary label',
-    'date': 'The date on which the experiment session took place, in ISO format, i.e. yyyy-mm-dd',
-    'number': 'The sequential session number of the day, optionally zero-padded to be three '
-              'numbers, e.g. 001, 002, etc.',
-    'collection': 'An optional folder to group data by modality, device, etc.  This is necessary '
-                  'when a session contains multiple measurements of the same type, from example '
-                  'spike times from multiple probes.  Label examples include "probe00", '
-                  '"raw_video_data".',
-    'revision': 'An optional folder to organize data by version.  The version label is arbitrary, '
-                'however the folder must start and end with pound signs, e.g. "#v1.0.0#". '
-                'Unlike collections, if a specified revision is not found, the previous revision '
-                'will be returned.  The revisions are ordered lexicographically.',
-    'namespace': 'An option filename prefix for data that are not not expected to be a community '
-                 'standard, for example task specific events.  The namespace may also be used to '
-                 'indicate data unique to a given piece of hardware or software, and is '
-                 'identified by underscores, e.g. "_iblrig_", "_phy_".',
-    'object': 'Every file describing a given object has the same number of rows (i.e. the 1st '
-              'dimension of an npy file, number of frames in a video file, etc).  You can '
-              'therefore think of the files for an object as together defining a table, with '
-              'column headings given by the attribute in the file names, and values given by the '
-              'file contents.  Object names should be in Haskell case and pluralized, '
-              'e.g. "wheelMoves", "sparseNoise", "trials".\nEncoding of relations between objects '
-              'can be achieved by a simplified relational model.  If the attribute name of one '
-              'file matches the object name of a second, then the first file is guaranteed to '
-              'contain integers referring to the rows of the second. For example, '
-              '"spikes.clusters.npy" would contain integer references to the rows of '
-              '"clusters.brain_location.json" and "clusters.probes.npy"; and '
-              '"clusters.probes.npy" would contain integer references to "probes.insertion.json". '
-              '\nBe careful of plurals ("clusters.probe.npy" would not correspond to '
-              '"probes.insertion.json") and remember we count arrays starting from 0.',
-    'attribute': 'Together with the object, the attribute represents the type of data in the '
-                 'file, for example "times", "amplitudes", "clusters".  The names should be in '
-                 'Haskell case, however the following three attributes may be separated by an '
-                 'underscore, e.g. "stimOn_times".\nThe attribute "times" is reserved for '
-                 'discrete event times and comprises a numerical array containing times of the '
-                 'events in seconds, relative to a universal timescale common to all files.\n'
-                 'The attribute "intervals" should have two columns, indicating the start and end '
-                 'times of each interval relative to the universal timescale.\n'
-                 'Continuous timeseries are represented by the "timestamps" attribute.  The file '
-                 'may contain a vector of times in universal seconds if unevenly sampled, or two '
-                 'rows each representing a synchronization point, the first column giving the '
-                 'sample number (counting from 0), and the second column giving the '
-                 'corresponding time in universal seconds.  The times corresponding to all '
-                 'samples are then found by linear interpolation.  NB: the "timestamps" file is '
-                 'an exception to the rule that all files representing a continuous timeseries '
-                 'object must have one row per sample, as it will often have substantially less.',
-    'timescale': 'If you want to represent times relative to another (non-universal) timescale, '
-                 'a timescale can be appended after an underscore e.g. '
-                 '"spikes.times_ephysClock.npy", "trials.intervals_nidaq", '
-                 '"wheel.timestamps_bpod.csv".',
-    'extra': 'File names could have as many optional parts as you like: '
-             '"object.attribute.x1.x2.[…].xN.extension".  The extra name parts play no formal '
-             'role, but can serve several additional purposes. For example, it could be a UUID or '
-             'file hash for archiving purposes.  If there are multiple files with the same '
-             'object, attribute, and extensions but different extra parts, these should be '
-             'treated as files to be concatenated, for example to allow multiple-part tif files '
-             'as produced by scanimage to be encoded in ALF. The concatenation would happen in '
-             'hierarchical lexicographical order: i.e. by lexicographic order of x1, '
-             'then x2, etc.',
-    'extension': 'ALF can deal with any sort of file, as long as it has a concept of a number of '
-                 'rows (or primary dimension). The type of file is recognized by its extension. \n'
-                 'Preferred choices:\n\n.npy: numpy array file. This is recommended over flat '
-                 'binary since datatype and shape is stored in the file.  If you have an array of '
-                 '3 or more dimensions, the first dimension counts as the number of rows.\n\n'
-                 '.tsv: tab-delimited text file. This is recommended over comma-separated files'
-                 'since text fields often have commas in. All rows should have the same number '
-                 'of columns. The first row contains tab-separated names for each column.\n\n'
-                 '.bin: flat binary file. It’s better to use .npy for storing binary data but '
-                 'some recording systems save in flat binary.  Rather than convert them, '
-                 'you can ALFize a flat binary file by adding a metadata file, which specifies '
-                 'the number of columns (as the size of the "columns" array) and the binary '
-                 'datatype as a top-level key "dtype", using numpy naming conventions.'
+    "root": "The root path, extracted either from the repository registered in the Alyx database,"
+    " or the local path provided by the user.",
+    "lab": "The name of the lab where the data were collected (optional).",
+    "Subjects": "An optional directory to indicate that the experiment data are divided by "
+    "subject.  If organizing by lab, this directory is required.",
+    "subject": "The subject name, typically an arbitrary label",
+    "date": "The date on which the experiment session took place, in ISO format, i.e. yyyy-mm-dd",
+    "number": "The sequential session number of the day, optionally zero-padded to be three "
+    "numbers, e.g. 001, 002, etc.",
+    "collection": "An optional folder to group data by modality, device, etc.  This is necessary "
+    "when a session contains multiple measurements of the same type, from example "
+    'spike times from multiple probes.  Label examples include "probe00", '
+    '"raw_video_data".',
+    "revision": "An optional folder to organize data by version.  The version label is arbitrary, "
+    'however the folder must start and end with pound signs, e.g. "#v1.0.0#". '
+    "Unlike collections, if a specified revision is not found, the previous revision "
+    "will be returned.  The revisions are ordered lexicographically.",
+    "namespace": "An option filename prefix for data that are not not expected to be a community "
+    "standard, for example task specific events.  The namespace may also be used to "
+    "indicate data unique to a given piece of hardware or software, and is "
+    'identified by underscores, e.g. "_iblrig_", "_phy_".',
+    "object": "Every file describing a given object has the same number of rows (i.e. the 1st "
+    "dimension of an npy file, number of frames in a video file, etc).  You can "
+    "therefore think of the files for an object as together defining a table, with "
+    "column headings given by the attribute in the file names, and values given by the "
+    "file contents.  Object names should be in Haskell case and pluralized, "
+    'e.g. "wheelMoves", "sparseNoise", "trials".\nEncoding of relations between objects '
+    "can be achieved by a simplified relational model.  If the attribute name of one "
+    "file matches the object name of a second, then the first file is guaranteed to "
+    "contain integers referring to the rows of the second. For example, "
+    '"spikes.clusters.npy" would contain integer references to the rows of '
+    '"clusters.brain_location.json" and "clusters.probes.npy"; and '
+    '"clusters.probes.npy" would contain integer references to "probes.insertion.json". '
+    '\nBe careful of plurals ("clusters.probe.npy" would not correspond to '
+    '"probes.insertion.json") and remember we count arrays starting from 0.',
+    "attribute": "Together with the object, the attribute represents the type of data in the "
+    'file, for example "times", "amplitudes", "clusters".  The names should be in '
+    "Haskell case, however the following three attributes may be separated by an "
+    'underscore, e.g. "stimOn_times".\nThe attribute "times" is reserved for '
+    "discrete event times and comprises a numerical array containing times of the "
+    "events in seconds, relative to a universal timescale common to all files.\n"
+    'The attribute "intervals" should have two columns, indicating the start and end '
+    "times of each interval relative to the universal timescale.\n"
+    'Continuous timeseries are represented by the "timestamps" attribute.  The file '
+    "may contain a vector of times in universal seconds if unevenly sampled, or two "
+    "rows each representing a synchronization point, the first column giving the "
+    "sample number (counting from 0), and the second column giving the "
+    "corresponding time in universal seconds.  The times corresponding to all "
+    'samples are then found by linear interpolation.  NB: the "timestamps" file is '
+    "an exception to the rule that all files representing a continuous timeseries "
+    "object must have one row per sample, as it will often have substantially less.",
+    "timescale": "If you want to represent times relative to another (non-universal) timescale, "
+    "a timescale can be appended after an underscore e.g. "
+    '"spikes.times_ephysClock.npy", "trials.intervals_nidaq", '
+    '"wheel.timestamps_bpod.csv".',
+    "extra": "File names could have as many optional parts as you like: "
+    '"object.attribute.x1.x2.[…].xN.extension".  The extra name parts play no formal '
+    "role, but can serve several additional purposes. For example, it could be a UUID or "
+    "file hash for archiving purposes.  If there are multiple files with the same "
+    "object, attribute, and extensions but different extra parts, these should be "
+    "treated as files to be concatenated, for example to allow multiple-part tif files "
+    "as produced by scanimage to be encoded in ALF. The concatenation would happen in "
+    "hierarchical lexicographical order: i.e. by lexicographic order of x1, "
+    "then x2, etc.",
+    "extension": "ALF can deal with any sort of file, as long as it has a concept of a number of "
+    "rows (or primary dimension). The type of file is recognized by its extension. \n"
+    "Preferred choices:\n\n.npy: numpy array file. This is recommended over flat "
+    "binary since datatype and shape is stored in the file.  If you have an array of "
+    "3 or more dimensions, the first dimension counts as the number of rows.\n\n"
+    ".tsv: tab-delimited text file. This is recommended over comma-separated files"
+    "since text fields often have commas in. All rows should have the same number "
+    "of columns. The first row contains tab-separated names for each column.\n\n"
+    ".bin: flat binary file. It’s better to use .npy for storing binary data but "
+    "some recording systems save in flat binary.  Rather than convert them, "
+    "you can ALFize a flat binary file by adding a metadata file, which specifies "
+    'the number of columns (as the size of the "columns" array) and the binary '
+    'datatype as a top-level key "dtype", using numpy naming conventions.',
 }
 """dict: The ALF part names and their definitions."""
 
@@ -92,72 +92,72 @@ SPEC_DESCRIPTION = {
 # The following are the specifications and patterns for ALFs #
 # ========================================================== #
 
-# TODO :  
+# TODO :
 # change the spec to be relaxed : (relax the use of _ and camelcase, no more timescale,namespace, (too complex, keep simple for users. timescale can be defined in the database in necessary, in file records, but i doubt it will ever be needed) relax the use of # in the path while keeping revisions syntax)
 # (?P<root>^[^<>\"|?*]+?)(?:/|\\)(?:(?P<lab>\w+)(?:/|\\)Subjects(?:/|\\))?(?P<subject>[\w-]+)(?:/|\\)(?P<date>\d{4}-\d{2}-\d{2})(?:/|\\)(?P<number>\d{1,3})(?:/|\\)(?:(?P<collection>[\w#/]+?)(?:/|\\))?(#(?P<revision>[\w-]+)#(?:/|\\))?(?P<object>[\w#]+)\.(?P<attribute>[\w#]+)(?:\.(?P<extra>[.\w-]+))*\.(?P<extension>\w+)$
 
 SEPARATOR = r"(?:/|\\)"
 """Just an helper to match either unix or windows like path strings more easily"""
 
-ROOT_SPEC = r'^{root}'
+ROOT_SPEC = r"^{root}"
 
-#relaxing
-#SESSION_SPEC = '({lab}/Subjects/)?{subject}/{date}/{number}'
-SESSION_SPEC = r'{subject}{sep}{date}{sep}{number}'
+# relaxing
+# SESSION_SPEC = '({lab}/Subjects/)?{subject}/{date}/{number}'
+SESSION_SPEC = r"{subject}{sep}{date}{sep}{number}"
 """str: The session specification pattern"""
 
-COLLECTION_SPEC = r'(?:{collection}{sep})?(?:#{revision}#{sep})?'
+COLLECTION_SPEC = r"(?:{collection}{sep})?(?:#{revision}#{sep})?"
 """str: The collection and revision specification pattern"""
 
-#relaxing
-#FILE_SPEC = r'_?{namespace}?_?{object}\.{attribute}(?:_{timescale})?(?:\.{extra})*\.{extension}$'
-FILE_SPEC = r'{object}(?:(?:\.{attribute})?(?:\.{extra})*\.{extension}?)?$'
+# relaxing
+# FILE_SPEC = r'_?{namespace}?_?{object}\.{attribute}(?:_{timescale})?(?:\.{extra})*\.{extension}$'
+FILE_SPEC = r"{object}(?:(?:\.{attribute})?(?:\.{extra})*\.{extension}?)?$"
 """str: The filename specification pattern"""
 
-REL_PATH_SPEC = f'{COLLECTION_SPEC}{FILE_SPEC}'
+REL_PATH_SPEC = f"{COLLECTION_SPEC}{FILE_SPEC}"
 """str: The collection, revision and filename specification pattern"""
 
-FOLDER_SPEC = f'{SESSION_SPEC}{SEPARATOR}{COLLECTION_SPEC}'
+FOLDER_SPEC = f"{SESSION_SPEC}{SEPARATOR}{COLLECTION_SPEC}"
 
-FULL_FOLDER_SPEC = f'{ROOT_SPEC}{SEPARATOR}{SESSION_SPEC}{SEPARATOR}{COLLECTION_SPEC}'
+FULL_FOLDER_SPEC = f"{ROOT_SPEC}{SEPARATOR}{SESSION_SPEC}{SEPARATOR}{COLLECTION_SPEC}"
 
-FULL_SPEC = f'{SESSION_SPEC}{SEPARATOR}{REL_PATH_SPEC}'
+FULL_SPEC = f"{SESSION_SPEC}{SEPARATOR}{REL_PATH_SPEC}"
 """str: The full ALF path specification pattern without a root path (stopping up to subject or lab)"""
 
-SESSION_ABSOLUTE_SPEC = f'{ROOT_SPEC}{SEPARATOR}{SESSION_SPEC}'
+SESSION_ABSOLUTE_SPEC = f"{ROOT_SPEC}{SEPARATOR}{SESSION_SPEC}"
 
-FULL_ABSOLUTE_SPEC = f'{ROOT_SPEC}{SEPARATOR}{SESSION_SPEC}{SEPARATOR}{REL_PATH_SPEC}'
+FULL_ABSOLUTE_SPEC = f"{ROOT_SPEC}{SEPARATOR}{SESSION_SPEC}{SEPARATOR}{REL_PATH_SPEC}"
 """str: The full ALF path specification pattern with a full root"""
 
 _DEFAULT = (
-    ('root', r'^[^<>:\"|?\*]+?'), #the root upstream of the lab/subject relative path
-    ('lab', r'\w+'),
-    ('subject', r'[^\\/<>:\"|?\*]+'),
-    ('date', r'\d{4}-\d{2}-\d{2}'),
-    ('number', r'\d{1,3}'),
-    ('collection', r'[^<>:\"|?\*]+?'),
-    ('revision', r'[^\\/<>:\"|?\*]+'),  # brackets
+    ("root", r"^[^<>:\"|?\*]+?"),  # the root upstream of the lab/subject relative path
+    ("lab", r"\w+"),
+    ("subject", r"[^\\/<>:\"|?\*]+"),
+    ("date", r"\d{4}-\d{2}-\d{2}"),
+    ("number", r"\d{1,3}"),
+    ("collection", r"[^<>:\"|?\*]+?"),
+    ("revision", r"[^\\/<>:\"|?\*]+"),  # brackets
     # to include underscores: r'(?P<namespace>(?:^_)\w+(?:_))?'
-    ('object', r'[^\.\\/<>:\"|?\*]+'),
+    ("object", r"[^\.\\/<>:\"|?\*]+"),
     # to treat _times and _intervals as timescale: (?P<attribute>[a-zA-Z]+)_?
     # (?:_[a-z]+_)? allows attribute level namespaces (deprecated)
-    ('attribute', r'[^\.\\/<>:\"|?\*]+'),  # brackets
-    ('extra', r'[^\\/<>:\"|?\*]+'),  # brackets
-    ('extension', r'\w+'),
-    ('sep',SEPARATOR),
+    ("attribute", r"[^\.\\/<>:\"|?\*]+"),  # brackets
+    ("extra", r"[^\\/<>:\"|?\*]+"),  # brackets
+    ("extension", r"\w+"),
+    ("sep", SEPARATOR),
 )
 
 _RELAXED_SPEC = (
-    ('root', r'^[^<>\"|?*]+?'), #the root upstream of the lab/subject relative path
-    ('subject', r'[\w-]+'),
-    ('date', r'\d{4}-\d{2}-\d{2}'),
-    ('number', r'\d{1,3}'),
-    ('collection', r'[\w/]+'),
-    ('revision', r'[\w-]+'),  
-    ('object', r'[\w\-,;!#~&}{\]\[()]+'),
-    ('attribute', r'[\w\-,;!#~&}{\]\[()]+'),  
-    ('extra', r'[.\w-]+'),  # brackets
-    ('extension', r'\w+')
+    ("root", r"^[^<>\"|?*]+?"),  # the root upstream of the lab/subject relative path
+    ("subject", r"[\w-]+"),
+    ("date", r"\d{4}-\d{2}-\d{2}"),
+    ("number", r"\d{1,3}"),
+    ("collection", r"[\w/]+"),
+    ("revision", r"[\w-]+"),
+    ("object", r"[\w\-,;!#~&}{\]\[()]+"),
+    ("attribute", r"[\w\-,;!#~&}{\]\[()]+"),
+    ("extra", r"[.\w-]+"),  # brackets
+    ("extension", r"\w+"),
 )
 
 
@@ -165,7 +165,7 @@ def path_pattern() -> str:
     """Returns a template string representing the where the ALF parts lie in an ALF path.
     Brackets denote optional parts.  This is used for documentation purposes only.
     """
-    return ''.join(filter(lambda c: c not in '{}?*\\$|', FULL_SPEC))
+    return "".join(filter(lambda c: c not in "{}?*\\$|", FULL_SPEC))
 
 
 def describe(part=None, width=99):
@@ -198,15 +198,19 @@ def describe(part=None, width=99):
             raise ValueError(f'Unknown ALF part "{part}", should be one of {all_parts}')
         parts = [part]
         span = re.search(part, full_spec).span()
-        ' ' * len(full_spec)
-        print(' ' * span[0] + '^' * (span[1] - span[0]) + ' ' * (len(full_spec) - span[1]))
+        " " * len(full_spec)
+        print(
+            " " * span[0] + "^" * (span[1] - span[0]) + " " * (len(full_spec) - span[1])
+        )
     else:
         parts = SPEC_DESCRIPTION.keys()
     for part in parts:
-        print('\n' + part.upper())
+        print("\n" + part.upper())
         # Split by max width
-        lines = flatten(textwrap.wrap(ln, width, replace_whitespace=False)
-                        for ln in SPEC_DESCRIPTION[part].splitlines())
+        lines = flatten(
+            textwrap.wrap(ln, width, replace_whitespace=False)
+            for ln in SPEC_DESCRIPTION[part].splitlines()
+        )
         [print(ln) for ln in lines]
 
 
@@ -231,22 +235,24 @@ def _dromedary(string) -> str:
     >>> _dromedary('passive_RFM') == 'passive RFM'
     >>> _dromedary('FooBarBaz') == 'fooBarBaz'
     """
+
     def _capitalize(x):
         return x if x.isupper() else x.capitalize()
+
     if not string:  # short circuit on None and ''
         return string
-    first, *other = re.split(r'[_\s]', string)
+    first, *other = re.split(r"[_\s]", string)
     if len(other) == 0:
         # Already camel/Pascal case, ensure first letter lower case
         return first[0].lower() + first[1:]
     # Convert to camel case, preserving all-uppercase elements
     first = first if first.isupper() else first.casefold()
-    return ''.join([first, *map(_capitalize, other)])
+    return "".join([first, *map(_capitalize, other)])
 
 
 def _named(pattern, name):
     """Wraps a regex pattern in a named capture group"""
-    return f'(?P<{name}>{pattern})'
+    return f"(?P<{name}>{pattern})"
 
 
 def regex(spec: str = FULL_SPEC, **kwargs) -> re.Pattern:
@@ -279,29 +285,32 @@ def regex(spec: str = FULL_SPEC, **kwargs) -> re.Pattern:
 
     >>> pattern = regex(object='trials')
     """
-    #spec = spec.replace('/',SEPARATOR)
-    #change pattern to a pattern that will match all separator types (unix or windows types)
+    # spec = spec.replace('/',SEPARATOR)
+    # change pattern to a pattern that will match all separator types (unix or windows types)
 
-    spec_str = build_spec_str(spec, **kwargs) 
+    spec_str = build_spec_str(spec, **kwargs)
     return re.compile(spec_str)
 
-def build_spec_str(spec: str = FULL_SPEC, **kwargs):
 
+def build_spec_str(spec: str = FULL_SPEC, **kwargs):
     fields = dict(_DEFAULT)
-    if not fields.keys() >= kwargs.keys(): #if a field in kwargs doesn't exist in the _DEFAULT components
+    if (
+        not fields.keys() >= kwargs.keys()
+    ):  # if a field in kwargs doesn't exist in the _DEFAULT components
         unknown = next(k for k in kwargs.keys() if k not in fields.keys())
         raise KeyError(f'Unknown field "{unknown}"')
     fields.update({k: v for k, v in kwargs.items() if v is not None})
     spec_dict = {}
-    for k in re.findall(r'(?<={)\w+', spec):
-        if k == 'sep' :
+    for k in re.findall(r"(?<={)\w+", spec):
+        if k == "sep":
             spec_dict[k] = fields[k]
             continue
         spec_dict[k] = _named(fields[k], k)
     spec_str = spec.format(**spec_dict)
     return spec_str
 
-def is_valid(filename, spec_pattern = FILE_SPEC):
+
+def is_valid(filename, spec_pattern=FILE_SPEC):
     """
     Returns a True for a given file name if it is an ALF file, otherwise returns False
 
@@ -326,9 +335,9 @@ def is_valid(filename, spec_pattern = FILE_SPEC):
     >>> is_valid('channels._phy_ids.csv')  # WARNING: attribute level namespaces are deprecated
     True
     """
-    #import os
-    #filename = os.path.normpath(filename)
-    #filename = filename.replace('\\','/')
+    # import os
+    # filename = os.path.normpath(filename)
+    # filename = filename.replace('\\','/')
     return regex(spec_pattern).match(filename) is not None
 
 
@@ -347,10 +356,10 @@ def is_session_path(path_object):
     bool
         True if session path a valid ALF session path
     """
-    session_spec = re.compile(regex(SESSION_SPEC).pattern + '$')
-    if hasattr(path_object, 'as_posix'):
+    session_spec = re.compile(regex(SESSION_SPEC).pattern + "$")
+    if hasattr(path_object, "as_posix"):
         path_object = path_object.as_posix()
-    path_object = path_object.strip('/')
+    path_object = path_object.strip("/")
     return session_spec.search(path_object) is not None
 
 
@@ -359,7 +368,11 @@ def is_uuid_string(string: str) -> bool:
     Bool test for randomly generated hexadecimal uuid validity.
     NB: unlike is_uuid, is_uuid_string checks that uuid is correctly hyphen separated
     """
-    return isinstance(string, str) and is_uuid(string, (3, 4, 5)) and str(UUID(string)) == string
+    return (
+        isinstance(string, str)
+        and is_uuid(string, (3, 4, 5))
+        and str(UUID(string)) == string
+    )
 
 
 def is_uuid(uuid: Union[str, int, bytes, UUID], versions=(4,)) -> bool:
@@ -370,7 +383,11 @@ def is_uuid(uuid: Union[str, int, bytes, UUID], versions=(4,)) -> bool:
         return False
     elif not isinstance(uuid, UUID):
         try:
-            uuid = UUID(uuid) if isinstance(uuid, str) else UUID(**{type(uuid).__name__: uuid})
+            uuid = (
+                UUID(uuid)
+                if isinstance(uuid, str)
+                else UUID(**{type(uuid).__name__: uuid})
+            )
         except ValueError:
             return False
     return isinstance(uuid, UUID) and uuid.version in versions
@@ -416,92 +433,88 @@ def to_alf(object, attribute, extension, namespace=None, timescale=None, extra=N
     """
     # Validate inputs
     if not extension:
-        raise TypeError('An extension must be provided')
-    elif extension.startswith('.'):
+        raise TypeError("An extension must be provided")
+    elif extension.startswith("."):
         extension = extension[1:]
-    if any(pt is not None and '.' in pt for pt in
-           (object, attribute, extension)):
-        raise ValueError('ALF parts must not contain a period (`.`)')
+    if any(pt is not None and "." in pt for pt in (object, attribute, extension)):
+        raise ValueError("ALF parts must not contain a period (`.`)")
     # Ensure parts are camel case (converts whitespace and snake case)
-    #object, timescale = map(_dromedary, (object, timescale))
+    # object, timescale = map(_dromedary, (object, timescale))
 
     # Optional extras may be provided as string or tuple of strings
     if not extra:
         extra = ()
     elif isinstance(extra, str):
-        extra = extra.split('.')
+        extra = extra.split(".")
 
     # Construct ALF file
-    parts = (object,
-             attribute,
-             *extra,
-             extension)
-    return '.'.join(parts)
+    parts = (object, attribute, *extra, extension)
+    return ".".join(parts)
 
-def to_full_path(subject = None,
-                date = None,
-                number = None,
-                
-                root = "",
 
-                object = "",
-                attribute = "",
-                extension = "",
-
-                extra = [""],
-                collection = [""],
-
-                timescale = None,
-                namespace = None,
-                revision = "",
-
-                session_details = None,
-                dromedarize = False,
-                #UNUSED PARTS
-                lab = None,
-                ):
-    
-    if session_details is not None :
+def to_full_path(
+    subject=None,
+    date=None,
+    number=None,
+    root="",
+    object="",
+    attribute="",
+    extension="",
+    extra=[""],
+    collection=[""],
+    timescale=None,
+    namespace=None,
+    revision="",
+    session_details=None,
+    dromedarize=False,
+    # UNUSED PARTS
+    lab=None,
+):
+    if session_details is not None:
         subject = session_details.subject
         date = session_details.date
         number = str(session_details.number)
-    
-    if subject is None :
+
+    if subject is None:
         subject = ""
 
-    if date is None :
+    if date is None:
         date = ""
 
-    if number is not None :
+    if number is not None:
         number = str(int(number)).zfill(3)
-    else :
+    else:
         number = ""
-    
-    if not isinstance(collection, (tuple,list)):
+
+    if not isinstance(collection, (tuple, list)):
         collection = [collection]
-    try :
+    try:
         collection = os.path.join(*collection)
-    except TypeError : #collection is [None]
+    except TypeError:  # collection is [None]
         collection = ""
 
-    if not isinstance(extra, (tuple,list)):
+    if not isinstance(extra, (tuple, list)):
         extra = [extra]
-    try : 
-        extra = '.'.join(extra)
-    except TypeError : #extra is [None]
+    try:
+        extra = ".".join(extra)
+    except TypeError:  # extra is [None]
         extra = None
-        
-    if extra == "" :
+
+    if extra == "":
         extra = None
-    
+
     if revision != "" and revision is not None:
         revision = f"#{revision}#"
-    else :
+    else:
         revision = ""
-    
-    if dromedarize :
-        attribute = _dromedary(attribute)#make sure there is no underscores, replace them by Caps
-        object = _dromedary(object)#make sure there is no underscores, replace them by Caps
+
+    if dromedarize:
+        attribute = _dromedary(
+            attribute
+        )  # make sure there is no underscores, replace them by Caps
+        object = _dromedary(
+            object
+        )  # make sure there is no underscores, replace them by Caps
 
     if attribute == "":
         attribute = None
@@ -512,11 +525,15 @@ def to_full_path(subject = None,
     if extension == "":
         extension = None
 
-    alf_filename = to_alf(object = object,
-                        attribute = attribute,
-                        extension = extension,
-                        namespace = namespace,
-                        timescale = timescale,
-                        extra = extra)
-    
-    return os.path.normpath(os.path.join(root,subject,date,number,collection,revision,alf_filename))
+    alf_filename = to_alf(
+        object=object,
+        attribute=attribute,
+        extension=extension,
+        namespace=namespace,
+        timescale=timescale,
+        extra=extra,
+    )
+
+    return os.path.normpath(
+        os.path.join(root, subject, date, number, collection, revision, alf_filename)
+    )
