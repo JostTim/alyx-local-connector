@@ -20,13 +20,12 @@ from uuid import UUID
 import itertools
 from collections import defaultdict
 from fnmatch import fnmatch
-import pandas as pd
 import os
-
 from typing import Dict, List
 
 import requests.exceptions
 
+import pandas as pd
 from iblutil.io import hashfile
 
 from .alf.io import next_num_folder
@@ -388,125 +387,125 @@ class RegistrationClient:
             session["data_dataset_session_related"] = ensure_list(recs)
         return session, recs
 
-    def register_files_legacy(
-        self,
-        file_list,
-        versions=None,
-        default=True,
-        created_by=None,
-        server_only=False,
-        repository=None,
-        dry=False,
-        max_md5_size=None,
-    ):
-        """
-        Registers a set of files belonging to a session only on the server
+    # def register_files_legacy(
+    #     self,
+    #     file_list,
+    #     versions=None,
+    #     default=True,
+    #     created_by=None,
+    #     server_only=False,
+    #     repository=None,
+    #     dry=False,
+    #     max_md5_size=None,
+    # ):
+    #     """
+    #     Registers a set of files belonging to a session only on the server
 
-        Parameters
-        ----------
-        file_list : list, str, pathlib.Path
-            A filepath (or list thereof) of ALF datasets to register to Alyx
-        created_by : str
-            Name of Alyx user (defaults to whoever is logged in to ONE instance)
-        repository : str
-            Name of the repository in Alyx to register to
-        server_only : bool
-            Will only create file records in the 'online' repositories and skips local repositories
-        versions : list of str
-            Optional version tags
-        default : bool
-            Whether to set as default revision (defaults to True)
-        dry : bool
-            When true returns POST data for registration endpoint without submitting the data
-        max_md5_size : int
-            Maximum file in bytes to compute md5 sum (always compute if None)
+    #     Parameters
+    #     ----------
+    #     file_list : list, str, pathlib.Path
+    #         A filepath (or list thereof) of ALF datasets to register to Alyx
+    #     created_by : str
+    #         Name of Alyx user (defaults to whoever is logged in to ONE instance)
+    #     repository : str
+    #         Name of the repository in Alyx to register to
+    #     server_only : bool
+    #         Will only create file records in the 'online' repositories and skips local repositories
+    #     versions : list of str
+    #         Optional version tags
+    #     default : bool
+    #         Whether to set as default revision (defaults to True)
+    #     dry : bool
+    #         When true returns POST data for registration endpoint without submitting the data
+    #     max_md5_size : int
+    #         Maximum file in bytes to compute md5 sum (always compute if None)
 
-        Returns
-        -------
-        list of dicts, dict
-            A list of newly created Alyx dataset records or the registration data if dry
-        """
+    #     Returns
+    #     -------
+    #     list of dicts, dict
+    #         A list of newly created Alyx dataset records or the registration data if dry
+    #     """
 
-        logger = getLogger("registration.register_files_legacy")
+    #     logger = getLogger("registration.register_files_legacy")
 
-        F = defaultdict(list)  # empty map whose keys will be session paths
-        V = defaultdict(list)  # empty map for versions
-        if isinstance(file_list, (str, pathlib.Path)):
-            file_list = [file_list]
+    #     F = defaultdict(list)  # empty map whose keys will be session paths
+    #     V = defaultdict(list)  # empty map for versions
+    #     if isinstance(file_list, (str, pathlib.Path)):
+    #         file_list = [file_list]
 
-        if versions is None or isinstance(versions, str):
-            versions = itertools.repeat(versions)
-        else:
-            versions = itertools.cycle(versions)
+    #     if versions is None or isinstance(versions, str):
+    #         versions = itertools.repeat(versions)
+    #     else:
+    #         versions = itertools.cycle(versions)
 
-        # Filter valid files and sort by session
-        for fn, ver in zip(map(pathlib.Path, file_list), versions):
-            session_path = get_session_path(fn)
-            if fn.suffix not in self.file_extensions:
-                logger.debug(f'{fn}: No matching extension "{fn.suffix}" in database')
-                continue
-            type_match = [
-                x["name"]
-                for x in self.dtypes
-                if fnmatch(fn.name, x["filename_pattern"] or "")
-            ]
-            if len(type_match) == 0:
-                logger.debug(f"{fn}: No matching dataset type in database")
-                continue
-            elif len(type_match) != 1:
-                logger.debug(
-                    f"{fn}: Multiple matching dataset types in database\n"
-                    '"' + '", "'.join(type_match) + '"'
-                )
-                continue
-            F[session_path].append(fn.relative_to(session_path))
-            V[session_path].append(ver)
+    #     # Filter valid files and sort by session
+    #     for fn, ver in zip(map(pathlib.Path, file_list), versions):
+    #         session_path = get_session_path(fn)
+    #         if fn.suffix not in self.file_extensions:
+    #             logger.debug(f'{fn}: No matching extension "{fn.suffix}" in database')
+    #             continue
+    #         type_match = [
+    #             x["name"]
+    #             for x in self.dtypes
+    #             if fnmatch(fn.name, x["filename_pattern"] or "")
+    #         ]
+    #         if len(type_match) == 0:
+    #             logger.debug(f"{fn}: No matching dataset type in database")
+    #             continue
+    #         elif len(type_match) != 1:
+    #             logger.debug(
+    #                 f"{fn}: Multiple matching dataset types in database\n"
+    #                 '"' + '", "'.join(type_match) + '"'
+    #             )
+    #             continue
+    #         F[session_path].append(fn.relative_to(session_path))
+    #         V[session_path].append(ver)
 
-        # For each unique session, make a separate POST request
-        records = []
-        for session_path, files in F.items():
-            # this is the generic relative path: subject/yyyy-mm-dd/NNN
-            details = session_path_parts(
-                session_path.as_posix(), as_dict=True, assert_valid=True
-            )
-            rel_path = PurePosixPath(
-                details["subject"], details["date"], details["number"]
-            )
-            file_sizes = [session_path.joinpath(fn).stat().st_size for fn in files]
-            # computing the md5 can be very long, so this is an option to skip if the file is
-            # bigger than a certain threshold
-            md5s = [
-                hashfile.md5(session_path.joinpath(fn))
-                if (max_md5_size is None or sz < max_md5_size)
-                else None
-                for fn, sz in zip(files, file_sizes)
-            ]
+    #     # For each unique session, make a separate POST request
+    #     records = []
+    #     for session_path, files in F.items():
+    #         # this is the generic relative path: subject/yyyy-mm-dd/NNN
+    #         details = session_path_parts(
+    #             session_path.as_posix(), as_dict=True, assert_valid=True
+    #         )
+    #         rel_path = PurePosixPath(
+    #             details["subject"], details["date"], details["number"]
+    #         )
+    #         file_sizes = [session_path.joinpath(fn).stat().st_size for fn in files]
+    #         # computing the md5 can be very long, so this is an option to skip if the file is
+    #         # bigger than a certain threshold
+    #         md5s = [
+    #             hashfile.md5(session_path.joinpath(fn))
+    #             if (max_md5_size is None or sz < max_md5_size)
+    #             else None
+    #             for fn, sz in zip(files, file_sizes)
+    #         ]
 
-            logger.info("Registering " + str(files))
+    #         logger.info("Registering " + str(files))
 
-            r_ = {
-                "created_by": created_by or self.one.alyx.user,
-                "path": rel_path.as_posix(),
-                "filenames": [x.as_posix() for x in files],
-                "hashes": md5s,
-                "filesizes": file_sizes,
-                "name": repository,
-                "server_only": server_only,
-                "default": default,
-                "versions": V[session_path],
-            }
+    #         r_ = {
+    #             "created_by": created_by or self.one.alyx.user,
+    #             "path": rel_path.as_posix(),
+    #             "filenames": [x.as_posix() for x in files],
+    #             "hashes": md5s,
+    #             "filesizes": file_sizes,
+    #             "name": repository,
+    #             "server_only": server_only,
+    #             "default": default,
+    #             "versions": V[session_path],
+    #         }
 
-            # Add optional field
-            if details["lab"]:
-                r_["labs"] = details["lab"]
-            # If dry, store POST data, otherwise store resulting file records
-            records.append(r_ if dry else self.one.alyx.post("/register-file", data=r_))
-            # Log file names
-            logger.info(f'ALYX REGISTERED DATA {"!DRY!" if dry else ""}: {rel_path}')
-            for p in files:
-                logger.info(f"ALYX REGISTERED DATA: {p}")
+    #         # Add optional field
+    #         if details["lab"]:
+    #             r_["labs"] = details["lab"]
+    #         # If dry, store POST data, otherwise store resulting file records
+    #         records.append(r_ if dry else self.one.alyx.post("/register-file", data=r_))
+    #         # Log file names
+    #         logger.info(f'ALYX REGISTERED DATA {"!DRY!" if dry else ""}: {rel_path}')
+    #         for p in files:
+    #             logger.info(f"ALYX REGISTERED DATA: {p}")
 
-        return records[0] if len(F.keys()) == 1 else records
+    #     return records[0] if len(F.keys()) == 1 else records
 
     def check_files_match_session(self, session, file_list):
         session_partial_path = os.path.join(
@@ -697,15 +696,6 @@ class RegistrationClient:
         return self.one.alyx.rest("weighings", "create", data=wei_)
 
     def group_files_by_dataset(self, files_list: List[str]) -> Dict[str, pd.DataFrame]:
-        """_summary_
-
-        Args:
-            files_list (List[str]): _description_
-
-        Returns:
-            Dict[str, pd.DataFrame]: The outputs datasets groups.
-                Each key of the output dictionnary is the name of a dataset ("object.attribute") and each value is a group of
-        """
 
         def make_dataset_name(row):
             collection_name = row.collection + "/" if row.collection else ""
