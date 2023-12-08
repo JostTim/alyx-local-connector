@@ -93,7 +93,10 @@ SPEC_DESCRIPTION = {
 # ========================================================== #
 
 # TODO :
-# change the spec to be relaxed : (relax the use of _ and camelcase, no more timescale,namespace, (too complex, keep simple for users. timescale can be defined in the database in necessary, in file records, but i doubt it will ever be needed) relax the use of # in the path while keeping revisions syntax)
+# change the spec to be relaxed : (relax the use of _ and camelcase, no more timescale,namespace,
+# (too complex, keep simple for users.
+# timescale can be defined in the database if necessary,
+# in file records, but i doubt it will ever be needed) relax the use of # in the path while keeping revisions syntax)
 # (?P<root>^[^<>\"|?*]+?)(?:/|\\)(?:(?P<lab>\w+)(?:/|\\)Subjects(?:/|\\))?(?P<subject>[\w-]+)(?:/|\\)(?P<date>\d{4}-\d{2}-\d{2})(?:/|\\)(?P<number>\d{1,3})(?:/|\\)(?:(?P<collection>[\w#/]+?)(?:/|\\))?(#(?P<revision>[\w-]+)#(?:/|\\))?(?P<object>[\w#]+)\.(?P<attribute>[\w#]+)(?:\.(?P<extra>[.\w-]+))*\.(?P<extension>\w+)$
 
 SEPARATOR = r"(?:/|\\)"
@@ -198,7 +201,7 @@ def describe(part=None, width=99):
             raise ValueError(f'Unknown ALF part "{part}", should be one of {all_parts}')
         parts = [part]
         span = re.search(part, full_spec).span()
-        " " * len(full_spec)
+        # " " * len(full_spec)
         print(
             " " * span[0] + "^" * (span[1] - span[0]) + " " * (len(full_spec) - span[1])
         )
@@ -433,7 +436,8 @@ def to_alf(object, attribute, extension, namespace=None, timescale=None, extra=N
     """
     # Validate inputs
     if not extension:
-        raise TypeError("An extension must be provided")
+        extension = ""
+    #    raise TypeError("An extension must be provided")
     elif extension.startswith("."):
         extension = extension[1:]
     if any(pt is not None and "." in pt for pt in (object, attribute, extension)):

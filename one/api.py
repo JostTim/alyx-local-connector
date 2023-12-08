@@ -51,6 +51,50 @@ def singleton(cls):
     return getinstance
 
 
+class MultiSessionPlaceholder(pd.core.series.Series):
+    @staticmethod
+    def _get_connector():
+        return one.ONE()
+
+    def __init__(
+        self,
+        *args,
+        project="Adaptation",
+        analysis_group="default",
+        data_path="",
+        data_repository=None,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        if data_repository is not None:
+            if data_repository == "local":
+                data_path = one.params.get().LOCAL_ROOT
+            else:
+                data_path = self._get_connector().alyx.rest("data-repository", "read", data_repository)["data_path"]
+        if data_path == "":
+            raise ValueError(
+                "Data path cannot be empty string. Must either be obtained by supplying data_repository argument, "
+                "or data_path directly"
+            )
+
+        data_path = os.path.normpath(data_path)
+
+        self["rel_path"] = os.path.join("multisession", analysis_group)
+        self["path"] = os.path.join(data_path, self["rel_path"])
+        self["alias"] = analysis_group
+        self["u_alias"] = analysis_group
+        self["projects"] = [project]
+        self["subject"] = analysis_group
+        self["number"] = 1
+        self["date"] = "2000-01-01"
+        self["json"] = {}
+
+        if not os.path.isdir(self["path"]):
+            os.makedirs(self["path"], exist_ok=True)
+
+        self.name = f"<placeholder_{analysis_group}>"
+
+
 class One(ConversionMixin):
     """An API for searching and loading data on a local filesystem"""
 
@@ -144,9 +188,7 @@ class One(ConversionMixin):
             # we need to keep this part fast enough for transient objects
             cache, meta["raw"][table] = parquet.load(cache_file)
             if "date_created" not in meta["raw"][table]:
-                _logger.warning(
-                    f"{cache_file} does not appear to be a valid table. Skipping"
-                )
+                _logger.warning(f"{cache_file} does not appear to be a valid table. Skipping")
                 continue
             meta["loaded_time"] = datetime.now()
 
@@ -172,11 +214,7 @@ class One(ConversionMixin):
             meta["expired"] = True
             meta["raw"] = {}
             self._cache.update({"datasets": pd.DataFrame(), "sessions": pd.DataFrame()})
-        created = [
-            datetime.fromisoformat(x["date_created"])
-            for x in meta["raw"].values()
-            if "date_created" in x
-        ]
+        created = [datetime.fromisoformat(x["date_created"]) for x in meta["raw"].values() if "date_created" in x]
         if created:
             meta["created_time"] = min(created)
             meta["expired"] |= datetime.now() - meta["created_time"] > self.cache_expiry
@@ -193,9 +231,7 @@ class One(ConversionMixin):
         force : bool
             If True, the cache is saved regardless of modification time.
         """
-        threading.Thread(
-            target=lambda: self._save_cache(save_dir=save_dir, force=force)
-        ).start()
+        threading.Thread(target=lambda: self._save_cache(save_dir=save_dir, force=force)).start()
 
     def _save_cache(self, save_dir=None, force=False):
         """
@@ -214,9 +250,7 @@ class One(ConversionMixin):
         save_dir = Path(save_dir or self.cache_dir)
         meta = self._cache["_meta"]
         modified = meta.get("modified_time") or datetime.min
-        update_time = max(
-            meta.get(x) or datetime.min for x in ("loaded_time", "saved_time")
-        )
+        update_time = max(meta.get(x) or datetime.min for x in ("loaded_time", "saved_time"))
         if modified < update_time and not force:
             return  # Not recently modified; return
 
@@ -232,9 +266,7 @@ class One(ConversionMixin):
         try:
             for table in filter(lambda x: not x[0] == "_", self._cache.keys()):
                 metadata = meta["raw"][table]
-                metadata["date_modified"] = modified.isoformat(
-                    sep=" ", timespec="minutes"
-                )
+                metadata["date_modified"] = modified.isoformat(sep=" ", timespec="minutes")
                 filename = save_dir.joinpath(f"{table}.pqt")
                 parquet.save(filename, self._cache[table], metadata)
                 _logger.debug(f"Saved {filename}")
@@ -264,10 +296,7 @@ class One(ConversionMixin):
         if mode in ("local", "remote"):
             pass
         elif mode == "auto":
-            if (
-                datetime.now() - self._cache["_meta"]["loaded_time"]
-                >= self.cache_expiry
-            ):
+            if datetime.now() - self._cache["_meta"]["loaded_time"] >= self.cache_expiry:
                 _logger.info("Cache expired, refreshing")
                 self.load_cache()
         elif mode == "refresh":
@@ -319,9 +348,7 @@ class One(ConversionMixin):
             try:
                 if not strict:
                     # Deal with case where there are extra columns in the cache
-                    extra_columns = set(self._cache[table].columns) - set(
-                        records.columns
-                    )
+                    extra_columns = set(self._cache[table].columns) - set(records.columns)
                     for col in extra_columns:
                         n = list(self._cache[table].columns).index(col)
                         records.insert(n, col, np.nan)
@@ -338,21 +365,17 @@ class One(ConversionMixin):
                 # Assign new rows
                 to_assign = records[~to_update]
                 if (
-                    isinstance(self._cache[table].index, pd.MultiIndex)
-                    or isinstance(to_assign.index, pd.MultiIndex)
+                    isinstance(self._cache[table].index, pd.MultiIndex) or isinstance(to_assign.index, pd.MultiIndex)
                 ) and not to_assign.empty:
                     # Concatenate and sort (no other way for non-unique index within MultiIndex)
-                    self._cache[table] = pd.concat(
-                        [self._cache[table], to_assign]
-                    ).sort_index()
+                    self._cache[table] = pd.concat([self._cache[table], to_assign]).sort_index()
                 else:
                     for index, record in to_assign.iterrows():
-                        self._cache[table].loc[index, :] = record[
-                            self._cache[table].columns
-                        ].values
+                        self._cache[table].loc[index, :] = record[self._cache[table].columns].values
             except KeyError as e:
                 _logger.debug(
-                    f"Local cache could not be updated : {type(e).__name__} : {e} for cachefield {table} with values \n{self._cache[table]} and new values \n{records}"
+                    f"Local cache could not be updated : {type(e).__name__} : {e} for cachefield {table} with values \n"
+                    "{self._cache[table]} and new values \n{records}"
                 )
             updated = datetime.now()
         self._cache["_meta"]["modified_time"] = updated
@@ -376,26 +399,16 @@ class One(ConversionMixin):
         pathlib.Path
             The file path of the saved list.
         """
-        if (
-            "_loaded_datasets" not in self._cache
-            or self._cache["_loaded_datasets"].size == 0
-        ):
-            warnings.warn(
-                'No datasets loaded; check "record_datasets" attribute is True'
-            )
+        if "_loaded_datasets" not in self._cache or self._cache["_loaded_datasets"].size == 0:
+            warnings.warn('No datasets loaded; check "record_datasets" attribute is True')
             return [], None
         if sessions_only:
             name = "session_uuid"
-            if (
-                self._cache["_loaded_datasets"].dtype == "int64"
-                or self._index_type() is int
-            ):
+            if self._cache["_loaded_datasets"].dtype == "int64" or self._index_type() is int:
                 # We're unlikely to return to int IDs and all caches should be cast to str on load
                 raise NotImplementedError("Saving integer session IDs not supported")
             else:
-                idx = self._cache["datasets"].index.isin(
-                    self._cache["_loaded_datasets"], "id"
-                )
+                idx = self._cache["datasets"].index.isin(self._cache["_loaded_datasets"], "id")
                 ids = self._cache["datasets"][idx].index.unique("eid").values
         else:
             name = "dataset_uuid"
@@ -461,9 +474,7 @@ class One(ConversionMixin):
 
         def all_present(x, dsets, exists=True):
             """Returns true if all datasets present in Series"""
-            return all(
-                any(x.str.contains(y, regex=self.wildcards) & exists) for y in dsets
-            )
+            return all(any(x.str.contains(y, regex=self.wildcards) & exists) for y in dsets)
 
         # Iterate over search filters, reducing the sessions table
         sessions = self._cache["sessions"]
@@ -497,9 +508,7 @@ class One(ConversionMixin):
                 sessions = sessions[sessions[key].isin(map(int, query))]
             # Dataset check is biggest so this should be done last
             elif key == "dataset":
-                index = (
-                    ["eid_0", "eid_1"] if self._index_type("datasets") is int else "eid"
-                )
+                index = ["eid_0", "eid_1"] if self._index_type("datasets") is int else "eid"
                 query = util.ensure_list(value)
                 datasets = self._cache["datasets"]
                 if self._index_type() is int:
@@ -594,25 +603,19 @@ class One(ConversionMixin):
             if rec["exists"] != file.exists():
                 with warnings.catch_warnings():
                     # Suppress future warning: exist column should always be present
-                    msg = (
-                        ".*indexing on a MultiIndex with a nested sequence of labels.*"
-                    )
+                    msg = ".*indexing on a MultiIndex with a nested sequence of labels.*"
                     warnings.filterwarnings("ignore", message=msg)
                     datasets.at[i, "exists"] = not rec["exists"]
                     if update_exists:
                         _logger.debug("Updating exists field")
-                        self._cache["datasets"].loc[
-                            (slice(None), i), "exists"
-                        ] = not rec["exists"]
+                        self._cache["datasets"].loc[(slice(None), i), "exists"] = not rec["exists"]
                         self._cache["_meta"]["modified_time"] = datetime.now()
 
         # If online and we have datasets to download, call download_datasets with these datasets
         if not (offline or self.offline) and indices_to_download:
             dsets_to_download = datasets.loc[indices_to_download]
             # Returns list of local file paths and set to variable
-            new_files = self._download_datasets(
-                dsets_to_download, update_cache=update_exists
-            )
+            new_files = self._download_datasets(dsets_to_download, update_cache=update_exists)
             # Add each downloaded file to the output list of files
             for i, file in zip(indices_to_download, new_files):
                 files[datasets.index.get_loc(i)] = file
@@ -683,9 +686,7 @@ class One(ConversionMixin):
         except KeyError:
             raise alferr.ALFObjectNotFound(eid)
         except AssertionError:
-            raise alferr.ALFMultipleObjectsFound(
-                f"Multiple sessions in cache for eid {eid}"
-            )
+            raise alferr.ALFMultipleObjectsFound(f"Multiple sessions in cache for eid {eid}")
         if not full:
             return det.iloc[0]
         # to_drop = 'eid' if int_ids else ['eid_0', 'eid_1']  # .reset_index(to_drop, drop=True)
@@ -778,9 +779,7 @@ class One(ConversionMixin):
         )
         if not eid:
             datasets = util.filter_datasets(datasets, **filter_args)
-            return (
-                datasets.copy() if details else datasets["rel_path"].unique().tolist()
-            )
+            return datasets.copy() if details else datasets["rel_path"].unique().tolist()
         eid = self.to_eid(eid)  # Ensure we have a UUID str list
         if not eid:
             return datasets.iloc[0:0]  # Return empty
@@ -795,9 +794,7 @@ class One(ConversionMixin):
 
         datasets = util.filter_datasets(datasets, **filter_args)
         # Return only the relative path
-        return (
-            datasets if details else datasets["rel_path"].sort_values().values.tolist()
-        )
+        return datasets if details else datasets["rel_path"].sort_values().values.tolist()
 
     @util.refresh
     def list_collections(
@@ -872,14 +869,9 @@ class One(ConversionMixin):
         )
         datasets = self.list_datasets(details=True, **filter_kwargs).copy()
 
-        datasets["collection"] = datasets.rel_path.apply(
-            lambda x: rel_path_parts(x, assert_valid=False)[0] or ""
-        )
+        datasets["collection"] = datasets.rel_path.apply(lambda x: rel_path_parts(x, assert_valid=False)[0] or "")
         if details:
-            return {
-                k: table.drop("collection", axis=1)
-                for k, table in datasets.groupby("collection")
-            }
+            return {k: table.drop("collection", axis=1) for k, table in datasets.groupby("collection")}
         else:
             return datasets["collection"].unique().tolist()
 
@@ -939,9 +931,7 @@ class One(ConversionMixin):
         >>> revisions = one.list_revisions(eid, revision=['202[01]*'])
 
         """
-        datasets = self.list_datasets(
-            eid=eid, details=True, query_type=query_type
-        ).copy()
+        datasets = self.list_datasets(eid=eid, details=True, query_type=query_type).copy()
 
         # Call filter util ourselves with the revision_last_before set to False
         kwargs = dict(
@@ -957,10 +947,7 @@ class One(ConversionMixin):
             lambda x: (rel_path_parts(x, assert_valid=False)[1] or "").strip("#")
         )
         if details:
-            return {
-                k: table.drop("revision", axis=1)
-                for k, table in datasets.groupby("revision")
-            }
+            return {k: table.drop("revision", axis=1) for k, table in datasets.groupby("revision")}
         else:
             return datasets["revision"].unique().tolist()
 
@@ -985,9 +972,7 @@ class One(ConversionMixin):
         """
         if not cache_dir:
             if not silent:
-                cache_dir = input(
-                    f"Select a directory from which to build cache ({Path.cwd()})"
-                )
+                cache_dir = input(f"Select a directory from which to build cache ({Path.cwd()})")
             cache_dir = cache_dir or Path.cwd()
         cache_dir = Path(cache_dir)
         assert cache_dir.exists(), f"{cache_dir} does not exist"
@@ -1019,7 +1004,8 @@ def ONE(*, mode="auto", data_access_mode="local", wildcards=True, **kwargs):
     data_access_mode : str
         Priority mode to find files related to the sessions.
         Can be either :
-        - 'local', in wich case files will be searched for locally, in the folder you entered as LOCAL_DATA_FOLDER during first alyx setup to your computer.
+        - 'local', in wich case files will be searched for locally, in the folder you entered as LOCAL_DATA_FOLDER
+            during first alyx setup to your computer.
         - 'remote' in wich case files will be searched for based on their server location specified in alyx.
     wildcards : bool
         If true all mathods use unix shell style pattern matching, otherwise regular expressions
@@ -1045,12 +1031,8 @@ def ONE(*, mode="auto", data_access_mode="local", wildcards=True, **kwargs):
     """
     _logger = logging.getLogger("ONE")
 
-    if any(x in kwargs for x in ("base_url", "username", "password")) or not kwargs.get(
-        "cache_dir", False
-    ):
-        return OneAlyx(
-            mode=mode, data_access_mode=data_access_mode, wildcards=wildcards, **kwargs
-        )
+    if any(x in kwargs for x in ("base_url", "username", "password")) or not kwargs.get("cache_dir", False):
+        return OneAlyx(mode=mode, data_access_mode=data_access_mode, wildcards=wildcards, **kwargs)
 
     # If cache dir was provided and corresponds to one configured with an Alyx client, use OneAlyx
     try:
@@ -1058,9 +1040,7 @@ def ONE(*, mode="auto", data_access_mode="local", wildcards=True, **kwargs):
         return One(mode="local", wildcards=wildcards, **kwargs)
     except AssertionError:
         # Cache dir corresponds to a Alyx repo, call OneAlyx
-        return OneAlyx(
-            mode=mode, data_access_mode=data_access_mode, wildcards=wildcards, **kwargs
-        )
+        return OneAlyx(mode=mode, data_access_mode=data_access_mode, wildcards=wildcards, **kwargs)
 
 
 @singleton
@@ -1112,14 +1092,14 @@ class OneAlyx(One):
             **kwargs,
         )
 
+        self._registration_client = RegistrationClient(self)
+
         self.data_access_mode = data_access_mode
 
         self._search_endpoint = "sessions"
 
         # get parameters override if inputs provided
         super().__init__(mode=mode, wildcards=wildcards, cache_dir=cache_dir)
-
-        self._registration_client = RegistrationClient(self)
 
     def set_data_access_mode(self, mode):
         available_modes = [
@@ -1157,70 +1137,49 @@ class OneAlyx(One):
         cache_dir = cache_dir or self.cache_dir
         # If user provides tag that doesn't match current cache's tag, always download.
         # NB: In the future 'database_tags' may become a list.
-        current_tags = [
-            x.get("database_tags") for x in cache_meta.get("raw", {}).values() or [{}]
-        ]
+        current_tags = [x.get("database_tags") for x in cache_meta.get("raw", {}).values() or [{}]]
         tag = tag or current_tags[0]  # For refreshes take the current tag as default
         different_tag = any(x != tag for x in current_tags)
         if not clobber or different_tag:
             super().load_cache(cache_dir)  # Load any present cache
-            cache_meta = self._cache.get(
-                "_meta", {}
-            )  # TODO Make walrus when we drop 3.7 support
+            cache_meta = self._cache.get("_meta", {})  # TODO Make walrus when we drop 3.7 support
             expired = self._cache and cache_meta["expired"]
             if not expired or self.mode in ("local", "remote"):
                 return
 
         # Warn user if expired
-        if (
-            cache_meta["expired"]
-            and cache_meta.get("created_time", False)
-            and not self.alyx.silent
-        ):
+        if cache_meta["expired"] and cache_meta.get("created_time", False) and not self.alyx.silent:
             age = datetime.now() - cache_meta["created_time"]
-            t_str = (
-                f"{age.days} day(s)"
-                if age.days >= 1
-                else f"{np.floor(age.seconds / (60 * 2))} hour(s)"
-            )
+            t_str = f"{age.days} day(s)" if age.days >= 1 else f"{np.floor(age.seconds / (60 * 2))} hour(s)"
             _logger.info(f"cache over {t_str} old")
 
         try:
             # Determine whether a newer cache is available
-            cache_info = self.alyx.get(
-                f'cache/info/{tag or ""}'.strip("/"), expires=True
-            )
+            cache_info = self.alyx.get(f'cache/info/{tag or ""}'.strip("/"), expires=True)
             assert tag == cache_info.get("database_tags")
 
             # Check version compatibility
-            min_version = packaging.version.parse(
-                cache_info.get("min_api_version", "0.0.0")
-            )
+            min_version = packaging.version.parse(cache_info.get("min_api_version", "0.0.0"))
             if packaging.version.parse(one.__version__) < min_version:
-                warnings.warn(
-                    f"Newer cache tables require ONE version {min_version} or greater"
-                )
+                warnings.warn(f"Newer cache tables require ONE version {min_version} or greater")
                 return
 
             # Check whether remote cache more recent
             remote_created = datetime.fromisoformat(cache_info["date_created"])
             local_created = cache_meta.get("created_time", None)
-            if local_created and (remote_created - local_created) < timedelta(
-                minutes=1
-            ):
+            if local_created and (remote_created - local_created) < timedelta(minutes=1):
                 _logger.info("No newer cache available")
                 return
 
             # Download the remote cache files
             _logger.info("Downloading remote caches...")
-            files = self.alyx.download_cache_tables(
-                cache_info.get("location"), cache_dir
-            )
+            files = self.alyx.download_cache_tables(cache_info.get("location"), cache_dir)
             assert any(files)
             super().load_cache(cache_dir)  # Reload cache after download
         except (requests.exceptions.HTTPError, HTTPError) as ex:
             _logger.debug(ex)
-            ##REMOVED THIS WARNING FOR NOW AS I CAN'T FIND IF IT IS ACTUALLY USEFULL TO HAVE A REMOTE CACHE WHEN SETUPING A LOCAL USE OF ALYX LIKE WE DO
+            ##REMOVED THIS WARNING FOR NOW AS I CAN'T FIND IF IT IS ACTUALLY USEFULL TO HAVE A REMOTE CACHE WHEN
+            # SETUPING A LOCAL USE OF ALYX LIKE WE DO
             # _logger.error('Failed to load the remote cache file')
             self.mode = "remote"
         except (ConnectionError, requests.exceptions.ConnectionError) as ex:
@@ -1263,9 +1222,7 @@ class OneAlyx(One):
         fields = self.alyx.rest_schemes[self._search_endpoint]["list"]["fields"]
         # 'laboratory' already in search terms
         excl = ("lab",)
-        return tuple(
-            {*self._search_terms, *(x["name"] for x in fields if x["name"] not in excl)}
-        )
+        return tuple({*self._search_terms, *(x["name"] for x in fields if x["name"] not in excl)})
 
     def describe_dataset(self, dataset_type=None):
         """Print a dataset type description.
@@ -1283,9 +1240,7 @@ class OneAlyx(One):
             The Alyx dataset type record
         """
         _logger = logging.getLogger("describe_dataset")
-        assert (
-            self.mode != "local" and not self.offline
-        ), "Unable to connect to Alyx in local mode"
+        assert self.mode != "local" and not self.offline, "Unable to connect to Alyx in local mode"
         if not dataset_type:
             return self.alyx.rest("dataset-types", "list")
         try:
@@ -1294,9 +1249,7 @@ class OneAlyx(One):
             out = self.alyx.rest("dataset-types", "read", dataset_type)
         except (AssertionError, requests.exceptions.HTTPError):
             # Try to get dataset type from dataset name
-            out = self.alyx.rest(
-                "dataset-types", "read", self.dataset2type(dataset_type)
-            )
+            out = self.alyx.rest("dataset-types", "read", self.dataset2type(dataset_type))
         finally:
             _logger.disabled = False
         print(out["description"])
@@ -1363,10 +1316,12 @@ class OneAlyx(One):
                 - tags
 
         Raises:
-            NotImplementedError: For now, using mode (metadata) local will not work as the cache system to retrive data has not been tested for.
+            NotImplementedError: For now, using mode (metadata) local will not work as the cache system to retrive data
+                has not been tested for.
 
         Returns:
-            Union[list, pd.DataFrame]: A list of matching files full_paths (if details = False) or a dataframe of all matching file records components and metadata.
+            Union[list, pd.DataFrame]: A list of matching files full_paths (if details = False) or a dataframe of all
+                matching file records components and metadata.
         """
 
         import natsort
@@ -1383,9 +1338,7 @@ class OneAlyx(One):
 
         data_access_mode = as_mode or self.data_access_mode
         if hasattr(eid, "keys") and "data_dataset_session_related" in eid.keys():
-            session_details = (
-                eid.copy()
-            )  # either a pd.series of dict, copy and key getters/setters works both cases
+            session_details = eid.copy()  # either a pd.series of dict, copy and key getters/setters works both cases
             try:
                 eid = session_details["id"]
             except KeyError:
@@ -1397,7 +1350,8 @@ class OneAlyx(One):
             eid = self.to_eid(eid)
             if eid is None:
                 raise ValueError(
-                    f"The session id {_eid} supplied seem to not be existing. Check that you are in 'remote' mode (not data_access_mode) and check that the session exists on a webpage."
+                    f"The session id {_eid} supplied seem to not be existing. Check that you are in 'remote' mode "
+                    "(not data_access_mode) and check that the session exists on a webpage."
                 )
             if (query_type or self.mode) != "remote":
                 raise NotImplementedError
@@ -1405,12 +1359,11 @@ class OneAlyx(One):
                 # return super().list_datasets(eid, details=details, query_type=query_type, **filters)
 
             session_details = self.to_session_details(
-                self.alyx.rest(
-                    "sessions", "read", id=eid, query_type=query_type, no_cache=no_cache
-                )
+                self.alyx.rest("sessions", "read", id=eid, query_type=query_type, no_cache=no_cache)
             )
         # session, datasets = util.ses2records(self.alyx.rest('sessions', 'read', id=eid))
-        # self._update_cache_from_records(sessions=session, datasets=datasets.copy() if datasets is not None else datasets)
+        # self._update_cache_from_records(sessions=session, datasets=datasets.copy()
+        # if datasets is not None else datasets)
         # Add to cache tables # TODO : DO ADD THAT FUNCTIONNALITY AGAIN
 
         datasets = copy.deepcopy(session_details["data_dataset_session_related"])
@@ -1433,22 +1386,16 @@ class OneAlyx(One):
                         "remote_full_path": os.path.normpath(
                             os.path.join(dataset["remote_root"], file["relative_path"])
                         ),
-                        "local_full_path": os.path.normpath(
-                            os.path.join(dataset["local_root"], file["relative_path"])
-                        ),
+                        "local_full_path": os.path.normpath(os.path.join(dataset["local_root"], file["relative_path"])),
                     }
                 )
-                file["full_path"] = file[
-                    data_access_mode + "_full_path"
-                ]  # remote or local depending on current mode
+                file["full_path"] = file[data_access_mode + "_full_path"]  # remote or local depending on current mode
                 file.update(dataset)
                 file_records.append(file)
 
         dataframe = pd.DataFrame(file_records)
         if dataframe.empty:
-            _logger.warning(
-                "No dataset found for this session. Are you sure you ran the file registration routine ?"
-            )
+            _logger.warning("No dataset found for this session. Are you sure you ran the file registration routine ?")
             return dataframe if details else []
 
         dataframe.set_index(["session#", "dataset#", "file#"])
@@ -1457,17 +1404,15 @@ class OneAlyx(One):
         # query_string = ' & '.join([f'{k} == {repr(v)}' for k, v in filters.items()])
         if filters:
             if "filename" in filters.keys():
-                filters["file_name"] = filters.pop(
-                    "filename"
-                )  # allowing filename for retrocompatibility
+                filters["file_name"] = filters.pop("filename")  # allowing filename for retrocompatibility
             queries = []
             for key, value in filters.items():
-                # if the columns correspunding to filter is object or string, we try to match using wildcard type syntax as input
-                # to do that we convert * wildcards to .* in regex and add a ^ and $ at start and end of pattern to force a complete string length match.
+                # if the columns correspunding to filter is object or string, we try to match using wildcard type
+                # syntax as input
+                # to do that we convert * wildcards to .* in regex and add a ^ and $ at start and end of pattern
+                # to force a complete string length match.
                 if isinstance(dataframe[key].dtype, (ObjectDType, StrDType)):
-                    queries.append(
-                        f"{key}.str.match('^' + {repr(value).replace('*', '.*')} + '$') "  #
-                    )
+                    queries.append(f"{key}.str.match('^' + {repr(value).replace('*', '.*')} + '$') ")  #
                 # if the columns is not a sting, we match it directly.
                 else:
                     queries.append(f"{key} == {value}")
@@ -1583,9 +1528,7 @@ class OneAlyx(One):
             matching session
         """
         _logger = logging.getLogger("search")
-        query_type = (
-            query_type or self.mode
-        )  # we set query_type = self.mode if query_type is None
+        query_type = query_type or self.mode  # we set query_type = self.mode if query_type is None
         if query_type != "remote":
             return super().search(details=details, query_type=query_type, **kwargs)
 
@@ -1595,16 +1538,12 @@ class OneAlyx(One):
         if id is not None:
             params["id"] = self.to_eid(id)
             if params["id"] is None:  # this means the id we supplied is not a valid eid
-                raise ValueError(
-                    f"{id} is not a valid identifier, could not convert it to session uuid."
-                )
+                raise ValueError(f"{id} is not a valid identifier, could not convert it to session uuid.")
         for key, value in sorted(kwargs.items()):
             field = util.autocomplete(key, search_terms)  # Validate and get full name
             # check that the input matches one of the defined filters
             if field == "date_range":
-                params[field] = [
-                    x.date().isoformat() for x in util.validate_date_range(value)
-                ]
+                params[field] = [x.date().isoformat() for x in util.validate_date_range(value)]
             # elif field == "procedures" :
             #     query = 'procedures__name,'+','.join(util.ensure_list(value))
             #     params['django'] += (',' if params['django'] else '') + query
@@ -1613,9 +1552,8 @@ class OneAlyx(One):
                 _logger.warning(
                     "Beware, the dataset method seems to not be working for now. Please use dataset_types instead"
                 )
-                query = (
-                    "data_dataset_session_related__dataset_type__name__icontains,"
-                    + ",".join(util.ensure_list(value))
+                query = "data_dataset_session_related__dataset_type__name__icontains," + ",".join(
+                    util.ensure_list(value)
                 )
                 params["django"] += ("," if params["django"] else "") + query
             elif field == "laboratory":
@@ -1653,7 +1591,8 @@ class OneAlyx(One):
                 pass  # could not create a dataframe form session details. Returning dict instead
             return sess_df
         else:
-            # LazyId only transforms records when indexex : More annoying than usefull when using small amount of sessions, using list to convert it to normal list
+            # LazyId only transforms records when indexex : More annoying than usefull when using small amount of
+            # sessions, using list to convert it to normal list
             eids = list(util.LazyId(ses))
             return eids
 
@@ -1662,23 +1601,15 @@ class OneAlyx(One):
             as_mode or self.data_access_mode
         )  # we set data_access_mode = self.data_access_mode if as_mode is None
 
-        session_dict["date"] = str(
-            datetime.fromisoformat(session_dict["start_time"]).date()
-        )
-        session_dict["extended_qc"] = (
-            session_dict["extended_qc"]
-            if session_dict["extended_qc"] is not None
-            else {}
-        )
+        session_dict["date"] = str(datetime.fromisoformat(session_dict["start_time"]).date())
+        session_dict["extended_qc"] = session_dict["extended_qc"] if session_dict["extended_qc"] is not None else {}
         session_dict["local_path"] = os.path.normpath(
             os.path.join(one.params.get().LOCAL_ROOT, session_dict["rel_path"])
         )
         session_dict["remote_path"] = os.path.normpath(
             session_dict["path"]
         )  # path is the remote path initially (out from the database)
-        session_dict["path"] = session_dict[
-            data_access_mode + "_path"
-        ]  # we set path depending on the data_access_mode
+        session_dict["path"] = session_dict[data_access_mode + "_path"]  # we set path depending on the data_access_mode
 
         session_dict["rel_path"] = Path(session_dict["rel_path"])
 
@@ -1707,13 +1638,9 @@ class OneAlyx(One):
         # If all datasets exist on AWS, download from there.
         _logger = logging.getLogger("_download_datasets")
         try:
-            if "exists_aws" in dsets and np.all(
-                np.equal(dsets["exists_aws"].values, True)
-            ):
+            if "exists_aws" in dsets and np.all(np.equal(dsets["exists_aws"].values, True)):
                 _logger.info("Downloading from AWS")
-                return self._download_aws(
-                    map(lambda x: x[1], dsets.iterrows()), **kwargs
-                )
+                return self._download_aws(map(lambda x: x[1], dsets.iterrows()), **kwargs)
         except Exception as ex:
             _logger.debug(ex)
         return self._download_dataset(dsets, **kwargs)
@@ -1730,21 +1657,13 @@ class OneAlyx(One):
         # Get all dataset URLs
         dsets = list(dsets)  # Ensure not generator
         uuids = [util.ensure_list(x.name)[-1] for x in dsets]
-        remote_records = self.alyx.rest(
-            "datasets", "list", exists=True, django=f"id__in,{uuids}"
-        )
-        remote_records = sorted(
-            remote_records, key=lambda x: uuids.index(x["url"].split("/")[-1])
-        )
+        remote_records = self.alyx.rest("datasets", "list", exists=True, django=f"id__in,{uuids}")
+        remote_records = sorted(remote_records, key=lambda x: uuids.index(x["url"].split("/")[-1]))
         out_files = []
         for dset, uuid, record in zip(dsets, uuids, remote_records):
             # Fetch file record path
             record = next(
-                (
-                    x
-                    for x in record["file_records"]
-                    if x["data_repository"].startswith("aws") and x["exists"]
-                ),
+                (x for x in record["file_records"] if x["data_repository"].startswith("aws") and x["exists"]),
                 None,
             )
             if record is None:
@@ -1755,9 +1674,7 @@ class OneAlyx(One):
                 self._cache["_meta"]["modified_time"] = datetime.now()
                 out_files.append(None)
                 continue
-            source_path = PurePosixPath(
-                record["data_repository_path"], record["relative_path"]
-            )
+            source_path = PurePosixPath(record["data_repository_path"], record["relative_path"])
             source_path = add_uuid_string(source_path, uuid)
             local_path = alfio.remove_uuid_file(
                 self.cache_dir.joinpath(dset["session_path"], dset["rel_path"]),
@@ -1815,31 +1732,17 @@ class OneAlyx(One):
             elif "data_url" in dset:  # data_dataset_session_related dict
                 url = dset["data_url"]
                 did = dset["id"]
-            elif (
-                "file_records" not in dset
-            ):  # Convert dataset Series to alyx dataset dict
-                url = self.record2url(
-                    dset
-                )  # NB: URL will always be returned but may not exist
-                is_int = all(
-                    isinstance(x, (int, np.int64)) for x in util.ensure_list(dset.name)
-                )
-                did = (
-                    np.array(dset.name)[-2:]
-                    if is_int
-                    else util.ensure_list(dset.name)[-1]
-                )
+            elif "file_records" not in dset:  # Convert dataset Series to alyx dataset dict
+                url = self.record2url(dset)  # NB: URL will always be returned but may not exist
+                is_int = all(isinstance(x, (int, np.int64)) for x in util.ensure_list(dset.name))
+                did = np.array(dset.name)[-2:] if is_int else util.ensure_list(dset.name)[-1]
             else:  # from datasets endpoint
-                repo = getattr(
-                    getattr(self._web_client, "_par", None), "HTTP_DATA_SERVER", None
-                )
+                repo = getattr(getattr(self._web_client, "_par", None), "HTTP_DATA_SERVER", None)
                 url = next(
                     (
                         fr["data_url"]
                         for fr in dset["file_records"]
-                        if fr["data_url"]
-                        and fr["exists"]
-                        and fr["data_url"].startswith(repo or fr["data_url"])
+                        if fr["data_url"] and fr["exists"] and fr["data_url"].startswith(repo or fr["data_url"])
                     ),
                     None,
                 )
@@ -1854,16 +1757,12 @@ class OneAlyx(One):
                 did = parquet.np2str(did)
             # NB: This will be considerably easier when IndexSlice supports Ellipsis
             idx = [slice(None)] * int(self._cache["datasets"].index.nlevels / 2)
-            self._cache["datasets"].loc[
-                (*idx, *util.ensure_list(did)), "exists"
-            ] = False
+            self._cache["datasets"].loc[(*idx, *util.ensure_list(did)), "exists"] = False
             self._cache["_meta"]["modified_time"] = datetime.now()
 
         return url
 
-    def _download_dataset(
-        self, dset, cache_dir=None, update_cache=True, **kwargs
-    ) -> List[Path]:
+    def _download_dataset(self, dset, cache_dir=None, update_cache=True, **kwargs) -> List[Path]:
         """
         Download a single or multitude of dataset from an Alyx REST dictionary.
 
@@ -1903,8 +1802,7 @@ class OneAlyx(One):
         fr = self.alyx.rest(
             "files",
             "list",
-            django=f'dataset,{Path(url).name.split(".")[-2]},'
-            f"data_repository__globus_is_personal,False",
+            django=f'dataset,{Path(url).name.split(".")[-2]},data_repository__globus_is_personal,False',
             no_cache=True,
         )
         if len(fr) > 0:
@@ -1922,13 +1820,10 @@ class OneAlyx(One):
                 )
             except requests.exceptions.HTTPError as ex:
                 warnings.warn(
-                    f"Failed to tag remote file record mismatch: {ex}\n"
-                    "Please contact the database administrator."
+                    f"Failed to tag remote file record mismatch: {ex}\nPlease contact the database administrator."
                 )
 
-    def _download_file(
-        self, url, target_dir, keep_uuid=False, file_size=None, hash=None
-    ):
+    def _download_file(self, url, target_dir, keep_uuid=False, file_size=None, hash=None):
         """
         Downloads a single file or multitude of files from an HTTP webserver.
         The webserver in question is set by the AlyxClient object.
@@ -1958,23 +1853,16 @@ class OneAlyx(One):
         """
         assert not self.offline
         # Ensure all target directories exist
-        [
-            Path(x).mkdir(parents=True, exist_ok=True)
-            for x in set(util.ensure_list(target_dir))
-        ]
+        [Path(x).mkdir(parents=True, exist_ok=True) for x in set(util.ensure_list(target_dir))]
 
         # download file(s) from url(s), returns file path(s) with UUID
-        local_path, md5 = self.alyx.download_file(
-            url, target_dir=target_dir, return_md5=True
-        )
+        local_path, md5 = self.alyx.download_file(url, target_dir=target_dir, return_md5=True)
 
         # check if url, hash, and file_size are lists
         if isinstance(url, (tuple, list)):
             assert (file_size is None) or len(file_size) == len(url)
             assert (hash is None) or len(hash) == len(url)
-        for args in zip(
-            *map(util.ensure_list, (file_size, md5, hash, local_path, url))
-        ):
+        for args in zip(*map(util.ensure_list, (file_size, md5, hash, local_path, url))):
             self._check_hash_and_file_size_mismatch(*args)
 
         # check if we are keeping the uuid on the list of file names
@@ -1987,9 +1875,7 @@ class OneAlyx(One):
         else:
             return alfio.remove_uuid_file(local_path)
 
-    def _check_hash_and_file_size_mismatch(
-        self, file_size, hash, expected_hash, local_path, url
-    ):
+    def _check_hash_and_file_size_mismatch(self, file_size, hash, expected_hash, local_path, url):
         """
         Check to ensure the hash and file size of a downloaded file matches what is on disk
 
@@ -2015,9 +1901,7 @@ class OneAlyx(One):
             # post download, if there is a mismatch between Alyx and the newly downloaded file size
             # or hash, flag the offending file record in Alyx for database for maintenance
             hash_mismatch = expected_hash and expected_hash != hash
-            file_size_mismatch = (
-                file_size and Path(local_path).stat().st_size != file_size
-            )
+            file_size_mismatch = file_size and Path(local_path).stat().st_size != file_size
             if hash_mismatch or file_size_mismatch:
                 url = url or self.path2url(local_path)
                 _logger.debug(f"Tagging mismatch for {url}")
@@ -2095,9 +1979,7 @@ class OneAlyx(One):
         )
 
     @util.refresh
-    def path2eid(
-        self, path_obj: Union[str, Path], query_type=None
-    ) -> util.Listable(Path):
+    def path2eid(self, path_obj: Union[str, Path], query_type=None) -> util.Listable(Path):
         import re
 
         """
@@ -2125,9 +2007,7 @@ class OneAlyx(One):
             return eid_list
         # else ensure the path ends with mouse,date, number
         try:
-            path_obj = re.findall(
-                r"(\w+(?:\\|\/)\d{4}-\d{2}-\d{2}(?:\\|\/)\d+)", path_obj
-            )[0]
+            path_obj = re.findall(r"(\w+(?:\\|\/)\d{4}-\d{2}-\d{2}(?:\\|\/)\d+)", path_obj)[0]
         except IndexError:  # could not match anything
             pass
 
@@ -2179,18 +2059,10 @@ class OneAlyx(One):
             return super().path2url(filepath)
         eid = self.path2eid(filepath)
         try:
-            (dataset,) = self.alyx.rest(
-                "datasets", "list", session=eid, name=Path(filepath).name
-            )
-            return next(
-                r["data_url"]
-                for r in dataset["file_records"]
-                if r["data_url"] and r["exists"]
-            )
+            (dataset,) = self.alyx.rest("datasets", "list", session=eid, name=Path(filepath).name)
+            return next(r["data_url"] for r in dataset["file_records"] if r["data_url"] and r["exists"])
         except (ValueError, StopIteration):
-            raise alferr.ALFObjectNotFound(
-                f"File record for {filepath} not found on Alyx"
-            )
+            raise alferr.ALFObjectNotFound(f"File record for {filepath} not found on Alyx")
 
     @util.parse_id
     def type2datasets(self, eid, dataset_type, details=False):
@@ -2212,18 +2084,14 @@ class OneAlyx(One):
         np.ndarray, dict
             A numpy array of data, or DataFrame if details is true
         """
-        assert (
-            self.mode != "local" and not self.offline
-        ), "Unable to connect to Alyx in local mode"
+        assert self.mode != "local" and not self.offline, "Unable to connect to Alyx in local mode"
         if isinstance(dataset_type, str):
             restriction = f"session__id,{eid},dataset_type__name,{dataset_type}"
         elif isinstance(dataset_type, collections.abc.Sequence):
             restriction = f"session__id,{eid},dataset_type__name__in,{dataset_type}"
         else:
             raise TypeError("dataset_type must be a str or str list")
-        datasets = util.datasets2records(
-            self.alyx.rest("datasets", "list", django=restriction)
-        )
+        datasets = util.datasets2records(self.alyx.rest("datasets", "list", django=restriction))
         return datasets if details else datasets["rel_path"].sort_values().values
 
     def dataset2type(self, dset) -> str:
@@ -2241,9 +2109,7 @@ class OneAlyx(One):
         str
             The dataset type
         """
-        assert (
-            self.mode != "local" and not self.offline
-        ), "Unable to connect to Alyx in local mode"
+        assert self.mode != "local" and not self.offline, "Unable to connect to Alyx in local mode"
         # Ensure dset is a str uuid
         if isinstance(dset, str) and not is_uuid_string(dset):
             dset = self._dataset_name2id(dset)
@@ -2270,9 +2136,7 @@ class OneAlyx(One):
         None, dict
             None if full is false or no record found, otherwise returns record as dict
         """
-        assert (
-            self.mode != "local" and not self.offline
-        ), "Unable to connect to Alyx in local mode"
+        assert self.mode != "local" and not self.offline, "Unable to connect to Alyx in local mode"
         try:
             rec = self.alyx.rest("revisions", "read", id=revision)
             print(rec["description"])
@@ -2359,34 +2223,17 @@ class OneAlyx(One):
 
     def get_data_repository_path(self, repository_name):
         repo_data = self.alyx.rest("data-repository", "read", repository_name)
-        repo_path = r"\\" + os.path.join(
-            repo_data["hostname"], repo_data["globus_path"].lstrip("/")
-        )
+        repo_path = r"\\" + os.path.join(repo_data["hostname"], repo_data["globus_path"].lstrip("/"))
         return os.path.normpath(repo_path)
 
     def read_sql(self, query):
-        # if i really need to access the database direcly (It is a bad idea though) it would be for dev/test purposes only, not for production.
-        # it has been dropped in the meantime
         raise NotImplementedError
-        # import sqlalchemy
-
-        # try:
-        #     params = one.params.get().ALYX_ALCHEMY
-        # except AttributeError:
-        #     raise AttributeError(
-        #         "Your param cache file has not secion for database direct access. Ask timothe to add it, or find a template at : `\\Mountcastle\lab\softwaredepot\Windows\AlyxDatabase\.direct_acces_template`"
-        #     )
-        # db_string = rf'{params["db_type"]}+{params["py_db_adapter"]}://{params["user"]}:{params["password"]}@{params["address"]}:{params["port"]}/{params["schema"]}'
-        # db = sqlalchemy.create_engine(db_string)
-        # return pd.read_sql(query, db)
 
     def create_session(self, data_dict):
         import re
 
         data_dict = data_dict.copy()
-        data_dict["number"] = str(
-            int(data_dict["number"])
-        )  # remove leading zeros if any
+        data_dict["number"] = str(int(data_dict["number"]))  # remove leading zeros if any
         try:  # a session have been found with same 3 parameters, don't allow to process to registering.
             _searched_session = self.search(
                 subject=data_dict["subject"],
@@ -2395,11 +2242,10 @@ class OneAlyx(One):
                 users=data_dict["users"],
                 details=True,
             )
-            url = re.sub(
-                r"\/sessions", r"/actions/session", _searched_session["url"].item()
-            )
+            url = re.sub(r"\/sessions", r"/actions/session", _searched_session["url"].item())
             raise ValueError(
-                f"This session path is already registered ! See here : {url}\n You probably need to change the number of the session for this animald/date combo"
+                f"This session path is already registered ! See here : {url}\n You probably need to change the number "
+                "of the session for this animald/date combo"
             )
         except KeyError:  # no session have benn found, all is well, can proceed
             pass
@@ -2425,16 +2271,15 @@ class OneAlyx(One):
         # this part is to open in atab instead of window. Buggy for now.
         if path[:2] == r"\\":
             pre_cmd = f"pushd {path}; "
-            # path = os.path.join(*[item for item in selected_folder.split(os.sep) if item != ''][1:]) #this removes the first object of the path
+            # path = os.path.join(*[item for item in selected_folder.split(os.sep) if item != ''][1:])
+            # #this removes the first object of the path
         else:
             pre_cmd = 'cd "{pateh}; "'
         subprocess.call(pre_cmd + r"start .")
         # subprocess.Popen(r'explorer '+f'{os.path.dirname(path)},select,{os.path.basename(path)}')
 
     def collection_path(self, eid, collections):
-        return os.path.join(
-            self.current_remote_repository_path, self.eid2path(eid), collections
-        )
+        return os.path.join(self.current_remote_repository_path, self.eid2path(eid), collections)
 
     def set_current_remote_repository(self, repo_name):
         self.current_remote_repository_path = self.get_data_repository_path(repo_name)
@@ -2442,9 +2287,7 @@ class OneAlyx(One):
     def get_parts_from_path(self, input_path):
         import re
 
-        subject, date, number = re.findall(
-            r"(\w+)(?:\\|\/)(\d{4}-\d{2}-\d{2})(?:\\|\/)(\d+)", input_path
-        )[0]
+        subject, date, number = re.findall(r"(\w+)(?:\\|\/)(\d{4}-\d{2}-\d{2})(?:\\|\/)(\d+)", input_path)[0]
         return {"subject": subject, "date": date, "number": number}
 
     def get_json_params(self, eid):
@@ -2456,16 +2299,16 @@ class OneAlyx(One):
     def display_session_info(self, session_details):
         from IPython.display import Markdown, display
 
-        session_data_link = f"[Data pathes](file:{os.path.normpath(session_details.path)}) pointing in {self.data_access_mode} mode."
-        metadatas_link = (
-            f"[Metadatas]({session_details.url}) obtained in {self.mode} mode."
+        session_data_link = (
+            f"[Data pathes](file:{os.path.normpath(session_details.path)}) pointing in {self.data_access_mode} mode."
         )
+        metadatas_link = f"[Metadatas]({session_details.url}) obtained in {self.mode} mode."
         uuid = f"(uuid is '{session_details.name}')"
-        display(
-            Markdown(
-                f"Session {session_details.rel_path}. {session_data_link} {metadatas_link} {uuid}"
-            )
-        )
+        display(Markdown(f"Session {session_details.rel_path}. {session_data_link} {metadatas_link} {uuid}"))
+
+    @wraps(MultiSessionPlaceholder)
+    def multisession(*args, **kwargs):
+        return MultiSessionPlaceholder(*args, **kwargs)
 
     def update_session_info(self, session_details, json={}, extended_qc={}, **kwargs):
         _logger = logging.getLogger("update_session_info")
@@ -2496,23 +2339,26 @@ class OneAlyx(One):
         self.alyx.rest("sessions", "partial_update", id=session_details.name, data=data)
         self.alyx.delete_cache()
 
-    def push_files(
-        self, file_list, *, session_details, relative=False, overwrite_policy="raise"
-    ):
+    def push_files(self, file_list, *, session_details, relative=False, overwrite_policy="raise"):
         """
-        The function push_processed_files copies a list of files to a remote session directory, and handles various overwrite policies.
+        The function push_processed_files copies a list of files to a remote session directory,
+        and handles various overwrite policies.
 
         Args:
 
             - file_list (list of str): a list of local file paths to be copied to the remote session directory.
             - session_details (SessionDetails): an object containing the session details.
-            - relative: If the string representing the path of the files are absolute or relative from INSIDE the session folder (ex : 'D:\LOCAL_DATA\wm25\2022-08-05\001\a_folder\test.file' is an absolute path and 'a_folder\test.file' is a relative path)
+            - relative: If the string representing the path of the files are absolute or relative from
+                INSIDE the session folder (ex : 'D:\LOCAL_DATA\wm25\2022-08-05\001\a_folder\test.file'
+                is an absolute path and 'a_folder\test.file' is a relative path)
             - overwrite_policy (str, optional): the overwrite policy. Possibilities are:
               - "raise" (raise an exception if a file with the same name already exists in the remote directory),
               - "skip" (skip copying the file if a file with the same name already exists in the remote directory),
               - "overwrite" (overwrite the file with the same name in the remote directory),
-              - "most_recent" (copy the file only if it is more recent than the file with the same name in the remote directory),
-              - "erase" (erase the existing file in the remote directory if a file with the same name already exists, then copy a new one in place.) Prefer choosing overwrite in most situations).
+              - "most_recent" (copy the file only if it is more recent than the file
+                 with the same name in the remote directory),
+              - "erase" (erase the existing file in the remote directory if a file with the same name already exists,
+                then copy a new one in place.) Prefer choosing overwrite in most situations).
 
             Default is "raise".
 
@@ -2520,14 +2366,15 @@ class OneAlyx(One):
 
             a dictionary with two keys:
               - "copied" : a list of file paths that have been copied to the remote session directory.
-              - "ignored" : a list of file paths that could not be copied (either because they were not found or because they were excluded by the overwrite policy).
+              - "ignored" : a list of file paths that could not be copied (either because they were not found or
+                because they were excluded by the overwrite policy).
         """
 
         import shutil
 
         def get_relative_path(absolute_path, common_root_path):
-            """
-            Compare an input path and a path with a common root with the input path, and returns only the part of the input path that is not shared with the _common_root_path.
+            """Compare an input path and a path with a common root with the input path, and returns only the part of
+            the input path that is not shared with the _common_root_path.
 
             Args:
                 input_path (TYPE): DESCRIPTION.
@@ -2542,15 +2389,14 @@ class OneAlyx(One):
 
             commonprefix = os.path.commonprefix([common_root_path, absolute_path])
             if commonprefix == "":
-                raise IOError(
-                    f"These two pathes have no common root path : {absolute_path} and {common_root_path}"
-                )
+                raise IOError(f"These two pathes have no common root path : {absolute_path} and {common_root_path}")
             return os.path.relpath(absolute_path, start=commonprefix)
 
         overwrite_policies = ["raise", "skip", "erase", "most_recent", "overwrite"]
         if overwrite_policy not in overwrite_policies:
             raise NotImplementedError(
-                f"Value {overwrite_policy} for overwrite_policy is not supported. Possibilities are : {overwrite_policies}"
+                f"Value {overwrite_policy} for overwrite_policy is not supported. "
+                f"Possibilities are : {overwrite_policies}"
             )
 
         session_local_root = session_details["local_path"]
@@ -2560,19 +2406,14 @@ class OneAlyx(One):
             file_list = [file_list]
 
         if relative:
-            file_list = [
-                os.path.join(session_local_root, session_details.rel_path, file)
-                for file in file_list
-            ]
+            file_list = [os.path.join(session_local_root, session_details.rel_path, file) for file in file_list]
 
         source_files = []  # file paths that have been copied
-        dest_files = (
-            []
-        )  # files paths of the copies of the one in the list above (ordered similarly)
+        dest_files = []  # files paths of the copies of the one in the list above (ordered similarly)
 
         overwrite_raise_list = (
             []
-        )  # stores files that already exist in remote folder in case we have 'raise' overwrite_policy, to print to user.
+        )  # stores files that already exist in remote folder in case we have 'raise' overwrite_policy, to print to user
         file_not_found_warning = []
 
         # MAKE THE LIST OF FILES THAT WILL BE COPIED
@@ -2611,20 +2452,23 @@ class OneAlyx(One):
 
         if len(file_not_found_warning):
             logging.getLogger().warning(
-                f"These files were not found or are not inside the session local folder, and therefore cannot be copied :\nFiles:\n{file_not_found_warning}"
+                "These files were not found or are not inside the session local folder, "
+                f"and therefore cannot be copied :\nFiles:\n{file_not_found_warning}"
             )
 
         if len(overwrite_raise_list):
             raise IOError(
-                f"The files listed below already exist in the destination : {session_remote_root}\nNo file have been copied to avoid mistakes. You can check the content of the destination folder manually, or change the 'overwrite_policy' argument of this function (beware of data losses !).\nFiles :\n {overwrite_raise_list}"
+                f"The files listed below already exist in the destination : {session_remote_root}\n"
+                "No file have been copied to avoid mistakes. "
+                "You can check the content of the destination folder manually, "
+                "or change the 'overwrite_policy' argument of this function (beware of data losses !).\n"
+                f"Files :\n {overwrite_raise_list}"
             )
 
         # APPLY THE COPY
         for local_path, remote_path in zip(source_files, dest_files):
             container_dir = os.path.dirname(remote_path)
-            os.makedirs(
-                container_dir, exist_ok=True
-            )  # make destination dir if it doesn't exist already
+            os.makedirs(container_dir, exist_ok=True)  # make destination dir if it doesn't exist already
             shutil.copy(local_path, remote_path)
 
         return {
@@ -2632,12 +2476,11 @@ class OneAlyx(One):
             "ignored": list(set(file_list).difference(set(source_files))),
         }
 
-    def copy_files(
-        self, source_file_list, source_root, destination_root, overwrite_policy="raise"
-    ):
+    def copy_files(self, source_file_list, source_root, destination_root, overwrite_policy="raise"):
         def get_relative_path(absolute_path, common_root_path):
             """
-            Compare an input path and a path with a common root with the input path, and returns only the part of the input path that is not shared with the _common_root_path.
+            Compare an input path and a path with a common root with the input path, and returns only the part of the
+            input path that is not shared with the _common_root_path.
 
             Args:
                 input_path (TYPE): DESCRIPTION.
@@ -2652,9 +2495,7 @@ class OneAlyx(One):
 
             commonprefix = os.path.commonprefix([common_root_path, absolute_path])
             if commonprefix == "":
-                raise IOError(
-                    f"These two pathes have no common root path : {absolute_path} and {common_root_path}"
-                )
+                raise IOError(f"These two pathes have no common root path : {absolute_path} and {common_root_path}")
             return os.path.relpath(absolute_path, start=commonprefix)
 
         # Check if the overwrite_policy is supported
@@ -2683,19 +2524,14 @@ class OneAlyx(One):
             # Check if the file exists at the destination location and apply the overwrite policy accordingly
             if os.path.isfile(destination_path):
                 if overwrite_policy == "raise":
-                    raise ValueError(
-                        f"File already exists at the destination: {destination_path}"
-                    )
+                    raise ValueError(f"File already exists at the destination: {destination_path}")
                 elif overwrite_policy == "skip":
                     ignored_files.append(source_file_path)
                     continue
                 elif overwrite_policy == "erase":
                     os.remove(destination_path)
                 elif overwrite_policy == "most_recent":
-                    if (
-                        os.stat(destination_path).st_mtime
-                        > os.stat(source_file_path).st_mtime
-                    ):
+                    if os.stat(destination_path).st_mtime > os.stat(source_file_path).st_mtime:
                         ignored_files.append(source_file_path)
                         continue
                 elif overwrite_policy == "overwrite":
@@ -2713,9 +2549,7 @@ class OneAlyx(One):
         # Return a dictionary with the list of copied and ignored files
         return {"copied": copied_files, "ignored": ignored_files}
 
-    def pull_files(
-        self, file_list, *, session_details, relative=False, overwrite_policy="raise"
-    ):
+    def pull_files(self, file_list, *, session_details, relative=False, overwrite_policy="raise"):
         pass
 
     #     import json
@@ -2727,7 +2561,8 @@ class OneAlyx(One):
     #                 found_file = os.path.join(_input_path,item)
     #         if found_file is None :
     #             if os.path.dirname(_input_path) == _input_path :
-    #                 raise IOError("input_path is not inside an alyx data-repository containing an '__alyx_repository__.json' file")
+    #                 raise IOError("input_path is not inside an alyx data-repository containing an
+    #               '__alyx_repository__.json' file")
     #             return _recurse_find_alyx_repo_json(os.path.dirname(_input_path))
     #         return found_file
 
@@ -2737,49 +2572,5 @@ class OneAlyx(One):
 
 # overwrite_policies = ["raise","skip","erase","most_recent","overwrite"]
 #       if not overwrite_policy in overwrite_policies :
-#           raise NotImplementedError(f"Value {overwrite_policy} for overwrite_policy is not supported. Possibilities are : {overwrite_policies}")
-
-
-class MultiSessionPlaceholder(pd.core.series.Series):
-    @staticmethod
-    def _get_connector():
-        return one.ONE()
-
-    def __init__(
-        self,
-        *args,
-        project="Adaptation",
-        analysis_group="default",
-        data_path="",
-        data_repository=None,
-        **kwargs,
-    ):
-        super().__init__(*args, **kwargs)
-        if data_repository is not None:
-            if data_repository == "local":
-                data_path = one.params.get().LOCAL_ROOT
-            else:
-                data_path = self._get_connector().alyx.rest(
-                    "data-repository", "read", data_repository
-                )["data_path"]
-        if data_path == "":
-            raise ValueError(
-                "Data path cannot be empty string. Must either be obtained by supplying data_repository argument, or data_path directly"
-            )
-
-        data_path = os.path.normpath(data_path)
-
-        self["rel_path"] = os.path.join("multisession", analysis_group)
-        self["path"] = os.path.join(data_path, self["rel_path"])
-        self["alias"] = analysis_group
-        self["u_alias"] = analysis_group
-        self["projects"] = [project]
-        self["subject"] = analysis_group
-        self["number"] = 1
-        self["date"] = "2000-01-01"
-        self["json"] = {}
-
-        if not os.path.isdir(self["path"]):
-            os.makedirs(self["path"], exist_ok=True)
-
-        self.name = f"<placeholder_{analysis_group}>"
+#           raise NotImplementedError(f"Value {overwrite_policy} for overwrite_policy is not supported.
+#           Possibilities are : {overwrite_policies}")

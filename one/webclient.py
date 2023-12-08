@@ -48,7 +48,7 @@ import tempfile
 from getpass import getpass
 from contextlib import contextmanager
 
-import requests
+import requests 
 from tqdm import tqdm
 
 from pprint import pprint
@@ -125,9 +125,7 @@ def _cache_response(method):
             response = method(alyx_client, *args, **kwargs)
         except requests.exceptions.ConnectionError as ex:
             if cached and not clobber:
-                warnings.warn(
-                    "Failed to connect, returning cached response", RuntimeWarning
-                )
+                warnings.warn("Failed to connect, returning cached response", RuntimeWarning)
                 return cached
             raise ex  # No cache and can't connect to database; re-raise
 
@@ -328,10 +326,7 @@ def http_download_file_list(links_to_file_list, **kwargs):
     zipped = zip(links_to_file_list, target_dir)
     with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as executor:
         # Multithreading load operations
-        futures = [
-            executor.submit(http_download_file, link, target_dir=target, **kwargs)
-            for link, target in zipped
-        ]
+        futures = [executor.submit(http_download_file, link, target_dir=target, **kwargs) for link, target in zipped]
         zip(links_to_file_list, ensure_list(kwargs.pop("target_dir", None)))
         # TODO Reintroduce variable timeout value based on file size and download speed of 5 Mb/s?
         # timeout = reduce(lambda x, y: x + (y.get('file_size', 0) or 0), dsets, 0) / 625000 ?
@@ -544,11 +539,11 @@ class AlyxClient:
             If true, auth token is cached
         """
         self.silent = silent
-        self._par = one.params.get(
-            client=base_url, silent=self.silent, username=username
-        )
+        self._par = one.params.get(client=base_url, silent=self.silent, username=username)
 
         self.base_url = base_url or self._par.ALYX_URL
+        if self.base_url is None:
+            raise ValueError("base_url was None after resolution")
 
         self._par = self._par.set("CACHE_DIR", cache_dir or self._par.CACHE_DIR)
         if username or password:
@@ -578,7 +573,8 @@ class AlyxClient:
         return Path(self._par.CACHE_DIR)
 
     def delete_cache(self):
-        """Delete all cached files in the .rest directory of your ONE installation (usually located in ONE inside downloads)"""
+        """Delete all cached files in the .rest directory of your ONE installation "
+        "(usually located in ONE inside downloads)"""
         cache_dir = self.cache_dir.joinpath(".rest")
         for item in os.listdir(cache_dir):
             os.remove(os.path.join(cache_dir, item))
@@ -586,12 +582,7 @@ class AlyxClient:
     @property
     def is_logged_in(self):
         """bool: Check if user logged into Alyx database; True if user is authenticated"""
-        return (
-            self._token
-            and self.user
-            and self._headers
-            and "Authorization" in self._headers
-        )
+        return self._token and self.user and self._headers and "Authorization" in self._headers
 
     def list_endpoints(self):
         """
@@ -606,9 +597,7 @@ class AlyxClient:
 
     @_cache_response
     def _generic_request(self, reqfunction, rest_query, data=None, files=None):
-        if not self._token and (
-            not self._headers or "Authorization" not in self._headers
-        ):
+        if not self._token and (not self._headers or "Authorization" not in self._headers):
             self.authenticate(username=self.user)
         # makes sure the base url is the one from the instance
         rest_query = rest_query.replace(self.base_url, "")
@@ -617,11 +606,7 @@ class AlyxClient:
         _logger.debug(f"{self.base_url + rest_query}, headers: {self._headers}")
         headers = self._headers.copy()
         if files is None:
-            data = (
-                json.dumps(data)
-                if isinstance(data, dict) or isinstance(data, list)
-                else data
-            )
+            data = json.dumps(data) if isinstance(data, dict) or isinstance(data, list) else data
             headers["Content-Type"] = "application/json"
         if rest_query.startswith("/docs"):
             # the mixed accept application may cause errors sometimes, only necessary for the docs
@@ -642,21 +627,15 @@ class AlyxClient:
             # Log out in order to flush stale token.  At this point we no longer have the password
             # but if the user re-instantiates with a password arg it will request a new token.
             username = self.user
-            if (
-                self.silent
-            ):  # no need to log out otherwise; user will be prompted for password
+            if self.silent:  # no need to log out otherwise; user will be prompted for password
                 self.logout()
             self.authenticate(username=username, force=True)
-            return self._generic_request(
-                reqfunction, rest_query, data=data, files=files
-            )
+            return self._generic_request(reqfunction, rest_query, data=data, files=files)
         else:
             _logger.debug("Response text: " + r.text)
             try:
                 message = json.loads(r.text)
-                message.pop(
-                    "status_code", None
-                )  # Get status code from response object instead
+                message.pop("status_code", None)  # Get status code from response object instead
                 message = message.get("detail") or message  # Get details if available
             except json.decoder.JSONDecodeError:
                 message = r.text
@@ -685,11 +664,7 @@ class AlyxClient:
             username = input("Enter Alyx username:")
 
         # Check if token cached
-        if (
-            not force
-            and getattr(self._par, "TOKEN", False)
-            and username in self._par.TOKEN
-        ):
+        if not force and getattr(self._par, "TOKEN", False) and username in self._par.TOKEN:
             self._token = self._par.TOKEN[username]
             self._headers = {
                 "Authorization": f"Token {list(self._token.values())[0]}",
@@ -709,8 +684,7 @@ class AlyxClient:
             rep = requests.post(self.base_url + "/auth-token", data=credentials)
         except requests.exceptions.ConnectionError:
             raise ConnectionError(
-                f"Can't connect to {self.base_url}.\n"
-                + "Check your internet connections and Alyx database firewall"
+                f"Can't connect to {self.base_url}.\n" + "Check your internet connections and Alyx database firewall"
             )
         # Assign token or raise exception on auth error
         if rep.ok:
@@ -718,18 +692,12 @@ class AlyxClient:
             assert list(self._token.keys()) == ["token"]
         else:
             if rep.status_code == 400:  # Auth error; re-raise with details
-                redacted = (
-                    "*" * len(credentials["password"])
-                    if credentials["password"]
-                    else None
-                )
+                redacted = "*" * len(credentials["password"]) if credentials["password"] else None
                 message = (
                     "Alyx authentication failed with credentials: "
                     f'user = {credentials["username"]}, password = {redacted}'
                 )
-                raise requests.HTTPError(
-                    rep.status_code, rep.url, message, response=rep
-                )
+                raise requests.HTTPError(rep.status_code, rep.url, message, response=rep)
             else:
                 rep.raise_for_status()
 
@@ -892,7 +860,8 @@ class AlyxClient:
         >>> url = self._validate_file_url('path/to/file')
         'https://webserver.net/path/to/file'
         """
-        # (timothé) : We don't use Web based file transfert, so i commented this part to avoid assertion errors with admin urls and such
+        # (timothé) : We don't use Web based file transfert, so i commented this part to avoid assertion errors with
+        # admin urls and such
         # if url.startswith('http'):  # A full URL
         #     assert url.startswith(self._par.HTTP_DATA_SERVER), \
         #         ('remote protocol and/or hostname does not match HTTP_DATA_SERVER parameter:\n' +
@@ -961,9 +930,7 @@ class AlyxClient:
         elif isinstance(result, list):
             return self.urlify_list(result)
         else:
-            raise TypeError(
-                f"HTTP Request result was not a dict nor a _PaginatedResponse but type : {type(result)}"
-            )
+            raise TypeError(f"HTTP Request result was not a dict nor a _PaginatedResponse but type : {type(result)}")
 
     def get(self, rest_query, **kwargs):
         """
@@ -991,9 +958,7 @@ class AlyxClient:
             "results",
         ]:
             if len(rep["results"]) < rep["count"]:
-                cache_args = {
-                    k: v for k, v in kwargs.items() if k in ("clobber", "expires")
-                }
+                cache_args = {k: v for k, v in kwargs.items() if k in ("clobber", "expires")}
                 rep = _PaginatedResponse(self, rep, cache_args)
             else:
                 rep = rep["results"]
@@ -1169,21 +1134,14 @@ class AlyxClient:
             )
         # the actions below require an id in the URL, warn and help the user
         if action in ["read", "update", "partial_update", "delete"] and not id:
-            _logger.warning(
-                'REST action "'
-                + action
-                + '" requires an ID in the URL: '
-                + endpoint_scheme[action]["url"]
-            )
+            _logger.warning('REST action "' + action + '" requires an ID in the URL: ' + endpoint_scheme[action]["url"])
             return
         # the actions below require a data dictionary, warn and help the user with fields list
         if action in ["create", "update", "partial_update"] and not data:
             pprint(endpoint_scheme[action]["fields"])
             for act in endpoint_scheme[action]["fields"]:
                 print("'" + act["name"] + "': ...,")
-            _logger.warning(
-                'REST action "' + action + '" requires a data dict with above keys'
-            )
+            _logger.warning('REST action "' + action + '" requires a data dict with above keys')
             return
 
         # clobber=True means remote request always made, expires=True means response is not cached
@@ -1203,15 +1161,10 @@ class AlyxClient:
                     kwargs["django"] = ""
                 # kwargs["django"] = f"{kwargs['django']}pk,{id}"
                 # we remove all other filters from kwargs, as selecting by id is already all or none
-                if len(
-                    excedent_keys := [
-                        key
-                        for key in kwargs.keys()
-                        if key != "django" and key != "query_type"
-                    ]
-                ):
+                if len(excedent_keys := [key for key in kwargs.keys() if key != "django" and key != "query_type"]):
                     _logger.warning(
-                        f"Some fields, {excedent_keys} have been supplied by the user, but an id is present in the list search. These fields have been discarded."
+                        f"Some fields, {excedent_keys} have been supplied by the user, but an id is present in the list"
+                        " search. These fields have been discarded."
                     )
                     # if there is any other filter, we send a warning
                 kwargs = {"django": f"{kwargs['django']}pk,{id}"}
@@ -1231,7 +1184,8 @@ class AlyxClient:
 
                     query_params.append((key, ",".join(map(str, ensure_list(value)))))
 
-                # the ",".join(map(str system allows to convert all lists in query params to comma separated string list if value contains multiple elements
+                # the ",".join(map(str system allows to convert all lists in query params to comma separated string
+                # list if value contains multiple elements
 
                 url = update_url_listparams(url, query_params)
             return self.get("/" + url, **cache_args)
@@ -1248,14 +1202,10 @@ class AlyxClient:
             return self.delete("/" + endpoint + "/" + id.split("/")[-1])
         elif action == "partial_update":
             assert endpoint_scheme[action]["action"] == "patch"
-            return self.patch(
-                "/" + endpoint + "/" + id.split("/")[-1], data=data, files=files
-            )
+            return self.patch("/" + endpoint + "/" + id.split("/")[-1], data=data, files=files)
         elif action == "update":
             assert endpoint_scheme[action]["action"] == "put"
-            return self.put(
-                "/" + endpoint + "/" + id.split("/")[-1], data=data, files=files
-            )
+            return self.put("/" + endpoint + "/" + id.split("/")[-1], data=data, files=files)
 
     # JSON field interface convenience methods
     def _check_inputs(self, endpoint: str) -> None:
@@ -1346,9 +1296,7 @@ class AlyxClient:
             current = {}
 
         if not isinstance(current, dict):
-            _logger.warning(
-                f"Current json field {field_name} does not contains a dict, aborting update"
-            )
+            _logger.warning(f"Current json field {field_name} does not contains a dict, aborting update")
             return current
 
         # Patch current dict with new data
@@ -1393,27 +1341,19 @@ class AlyxClient:
             return current
         # if contents are not dict, cannot remove key, return contents
         if isinstance(current, str):
-            _logger.warning(
-                f"Cannot remove key {key} content of json field is of type str"
-            )
+            _logger.warning(f"Cannot remove key {key} content of json field is of type str")
             return None
         # If key not present in contents of json field cannot remove key, return contents
         if current.get(key, None) is None:
-            _logger.warning(
-                f"{key}: Key not found in endpoint {endpoint} field {field_name}"
-            )
+            _logger.warning(f"{key}: Key not found in endpoint {endpoint} field {field_name}")
             return current
         _logger.info(f"Removing key from dict: '{key}'")
         current.pop(key)
         # Re-write contents without removed key
-        written = self.json_field_write(
-            endpoint=endpoint, uuid=uuid, field_name=field_name, data=current
-        )
+        written = self.json_field_write(endpoint=endpoint, uuid=uuid, field_name=field_name, data=current)
         return written
 
-    def json_field_delete(
-        self, endpoint: str = None, uuid: str = None, field_name: str = None
-    ) -> None:
+    def json_field_delete(self, endpoint: str = None, uuid: str = None, field_name: str = None) -> None:
         self._check_inputs(endpoint)
         _ = self.rest(endpoint, "partial_update", id=uuid, data={field_name: None})
         return _[field_name]

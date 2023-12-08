@@ -22,7 +22,7 @@ from collections import defaultdict
 from fnmatch import fnmatch
 import os
 from typing import Dict, List
-
+from requests.exceptions import HTTPError
 import requests.exceptions
 
 import pandas as pd
@@ -54,17 +54,12 @@ class RegistrationClient:
 
             self.one = ONE(cache_rest=None)
         self.dtypes = self.one.alyx.rest("dataset-types", "list")
-        self.registration_patterns = [
-            dt["filename_pattern"] for dt in self.dtypes if dt["filename_pattern"]
-        ]
+        self.registration_patterns = [dt["filename_pattern"] for dt in self.dtypes if dt["filename_pattern"]]
         self.file_extensions = [
-            df["file_extension"]
-            for df in self.one.alyx.rest("data-formats", "list", no_cache=True)
+            df["file_extension"] for df in self.one.alyx.rest("data-formats", "list", no_cache=True)
         ]
 
-    def create_sessions(
-        self, root_data_folder, glob_pattern="**/create_me.flag", dry=False
-    ):
+    def create_sessions(self, root_data_folder, glob_pattern="**/create_me.flag", dry=False):
         """
         Create sessions looking recursively for flag files
 
@@ -114,9 +109,7 @@ class RegistrationClient:
         """
         return self.register_session(session_path, file_list=False, **kwargs)[0]
 
-    def create_new_session(
-        self, subject, session_root=None, date=None, register=True, **kwargs
-    ):
+    def create_new_session(self, subject, session_root=None, date=None, register=True, **kwargs):
         """Create a new local session folder and optionally create session record on Alyx
 
         Parameters
@@ -158,16 +151,10 @@ class RegistrationClient:
         date = self.ensure_ISO8601(date)  # Format, validate
         # Ensure subject exists on Alyx
         self.assert_exists(subject, "subjects")
-        session_root = (
-            Path(session_root or self.one.alyx.cache_dir) / subject / date[:10]
-        )
+        session_root = Path(session_root or self.one.alyx.cache_dir) / subject / date[:10]
         session_path = session_root / next_num_folder(session_root)
         session_path.mkdir(exist_ok=True, parents=True)  # Ensure folder exists on disk
-        eid = (
-            UUID(self.create_session(session_path, **kwargs)["url"][-36:])
-            if register
-            else None
-        )
+        eid = UUID(self.create_session(session_path, **kwargs)["url"][-36:]) if register else None
         return session_path, eid
 
     def find_files(self, session_path):
@@ -187,11 +174,7 @@ class RegistrationClient:
         session_path = Path(session_path)
         types = (x["filename_pattern"] for x in self.dtypes if x["filename_pattern"])
         dsets = itertools.chain.from_iterable(session_path.rglob(x) for x in types)
-        return (
-            x
-            for x in dsets
-            if x.is_file() and any(x.name.endswith(y) for y in self.file_extensions)
-        )
+        return (x for x in dsets if x.is_file() and any(x.name.endswith(y) for y in self.file_extensions))
 
     def assert_exists(self, member, endpoint):
         """Raise an error if a given member doesn't exist on Alyx database
@@ -321,9 +304,7 @@ class RegistrationClient:
 
         if isinstance(ses_path, str):
             ses_path = Path(ses_path)
-        details = session_path_parts(
-            ses_path.as_posix(), as_dict=True, assert_valid=True
-        )
+        details = session_path_parts(ses_path.as_posix(), as_dict=True, assert_valid=True)
         # query alyx endpoints for subject, error if not found
         self.assert_exists(details["subject"], "subjects")
 
@@ -349,9 +330,7 @@ class RegistrationClient:
         if kwargs.get("end_time", False):
             ses_["end_time"] = self.ensure_ISO8601(kwargs.pop("end_time"))
         start_time = self.ensure_ISO8601(kwargs.pop("start_time", details["date"]))
-        assert (
-            start_time[:10] == details["date"]
-        ), "start_time doesn't match session path"
+        assert start_time[:10] == details["date"], "start_time doesn't match session path"
         if kwargs.get("procedures", False):
             ses_["procedures"] = ensure_list(kwargs.pop("procedures"))
         if kwargs.get("projects", False):
@@ -361,9 +340,7 @@ class RegistrationClient:
             kwargs.update({"lab": details["lab"]})
         elif details["lab"] and kwargs.get("lab", details["lab"]) != details["lab"]:
             names = (kwargs["lab"], details["lab"])
-            raise ValueError(
-                'lab kwarg "%s" does not match lab name in path ("%s")' % names
-            )
+            raise ValueError('lab kwarg "%s" does not match lab name in path ("%s")' % names)
         ses_.update(kwargs)
 
         if not session:  # Create from scratch
@@ -372,217 +349,16 @@ class RegistrationClient:
         else:  # Update existing
             if start_time:
                 ses_["start_time"] = self.ensure_ISO8601(start_time)
-            session = self.one.alyx.rest(
-                "sessions", "update", id=session_id[0], data=ses_
-            )
+            session = self.one.alyx.rest("sessions", "update", id=session_id[0], data=ses_)
 
         logger.info(session["url"] + " ")
         # at this point the session has been created. If create only, exit
         if not file_list:
             return session, None
-        recs = self.register_files(
-            self.find_files(ses_path) if file_list is True else file_list
-        )
+        recs = self.register_files(self.find_files(ses_path) if file_list is True else file_list)
         if recs:  # Update local session data after registering files
             session["data_dataset_session_related"] = ensure_list(recs)
         return session, recs
-
-    # def register_files_legacy(
-    #     self,
-    #     file_list,
-    #     versions=None,
-    #     default=True,
-    #     created_by=None,
-    #     server_only=False,
-    #     repository=None,
-    #     dry=False,
-    #     max_md5_size=None,
-    # ):
-    #     """
-    #     Registers a set of files belonging to a session only on the server
-
-    #     Parameters
-    #     ----------
-    #     file_list : list, str, pathlib.Path
-    #         A filepath (or list thereof) of ALF datasets to register to Alyx
-    #     created_by : str
-    #         Name of Alyx user (defaults to whoever is logged in to ONE instance)
-    #     repository : str
-    #         Name of the repository in Alyx to register to
-    #     server_only : bool
-    #         Will only create file records in the 'online' repositories and skips local repositories
-    #     versions : list of str
-    #         Optional version tags
-    #     default : bool
-    #         Whether to set as default revision (defaults to True)
-    #     dry : bool
-    #         When true returns POST data for registration endpoint without submitting the data
-    #     max_md5_size : int
-    #         Maximum file in bytes to compute md5 sum (always compute if None)
-
-    #     Returns
-    #     -------
-    #     list of dicts, dict
-    #         A list of newly created Alyx dataset records or the registration data if dry
-    #     """
-
-    #     logger = getLogger("registration.register_files_legacy")
-
-    #     F = defaultdict(list)  # empty map whose keys will be session paths
-    #     V = defaultdict(list)  # empty map for versions
-    #     if isinstance(file_list, (str, pathlib.Path)):
-    #         file_list = [file_list]
-
-    #     if versions is None or isinstance(versions, str):
-    #         versions = itertools.repeat(versions)
-    #     else:
-    #         versions = itertools.cycle(versions)
-
-    #     # Filter valid files and sort by session
-    #     for fn, ver in zip(map(pathlib.Path, file_list), versions):
-    #         session_path = get_session_path(fn)
-    #         if fn.suffix not in self.file_extensions:
-    #             logger.debug(f'{fn}: No matching extension "{fn.suffix}" in database')
-    #             continue
-    #         type_match = [
-    #             x["name"]
-    #             for x in self.dtypes
-    #             if fnmatch(fn.name, x["filename_pattern"] or "")
-    #         ]
-    #         if len(type_match) == 0:
-    #             logger.debug(f"{fn}: No matching dataset type in database")
-    #             continue
-    #         elif len(type_match) != 1:
-    #             logger.debug(
-    #                 f"{fn}: Multiple matching dataset types in database\n"
-    #                 '"' + '", "'.join(type_match) + '"'
-    #             )
-    #             continue
-    #         F[session_path].append(fn.relative_to(session_path))
-    #         V[session_path].append(ver)
-
-    #     # For each unique session, make a separate POST request
-    #     records = []
-    #     for session_path, files in F.items():
-    #         # this is the generic relative path: subject/yyyy-mm-dd/NNN
-    #         details = session_path_parts(
-    #             session_path.as_posix(), as_dict=True, assert_valid=True
-    #         )
-    #         rel_path = PurePosixPath(
-    #             details["subject"], details["date"], details["number"]
-    #         )
-    #         file_sizes = [session_path.joinpath(fn).stat().st_size for fn in files]
-    #         # computing the md5 can be very long, so this is an option to skip if the file is
-    #         # bigger than a certain threshold
-    #         md5s = [
-    #             hashfile.md5(session_path.joinpath(fn))
-    #             if (max_md5_size is None or sz < max_md5_size)
-    #             else None
-    #             for fn, sz in zip(files, file_sizes)
-    #         ]
-
-    #         logger.info("Registering " + str(files))
-
-    #         r_ = {
-    #             "created_by": created_by or self.one.alyx.user,
-    #             "path": rel_path.as_posix(),
-    #             "filenames": [x.as_posix() for x in files],
-    #             "hashes": md5s,
-    #             "filesizes": file_sizes,
-    #             "name": repository,
-    #             "server_only": server_only,
-    #             "default": default,
-    #             "versions": V[session_path],
-    #         }
-
-    #         # Add optional field
-    #         if details["lab"]:
-    #             r_["labs"] = details["lab"]
-    #         # If dry, store POST data, otherwise store resulting file records
-    #         records.append(r_ if dry else self.one.alyx.post("/register-file", data=r_))
-    #         # Log file names
-    #         logger.info(f'ALYX REGISTERED DATA {"!DRY!" if dry else ""}: {rel_path}')
-    #         for p in files:
-    #             logger.info(f"ALYX REGISTERED DATA: {p}")
-
-    #     return records[0] if len(F.keys()) == 1 else records
-
-    def check_files_match_session(self, session, file_list):
-        session_partial_path = os.path.join(
-            session.subject, session.date, str(session.number).zfill(3)
-        )
-        for file in file_list:
-            if session_partial_path not in file:
-                return False
-        return True
-
-    def files(self, session, file_list, check_file_exist=False, repository_name=None):
-        logger = getLogger("registration.files")
-
-        # checks that all files belong to the session supplied
-        files_status = self.check_files_match_session(session, file_list)
-        if not files_status:
-            raise ValueError(
-                "Some files in the list you provided do not belong to the session you provided."
-            )
-
-        dataset_groups = self.group_files_by_dataset(file_list)
-
-        if repository_name is not None:
-            if len(dataset_groups.root.unique()) != 1:
-                raise ValueError(
-                    "If you supply repository_name manually, all files must have the same root"
-                )
-
-        # name of the session pd.series is the database session id (aka primary key or pk)
-        session_id = session.name
-
-        for group_name, group in dataset_groups.groupby("dataset_name"):
-            root_path = group.iloc[0]["root"]
-
-            # checks that all files have the same session repository
-            if len(group.root.unique()) != 1:
-                raise ValueError(
-                    f"The files belonging to the dataset {group_name} are not belonging to a single data repository (root) !"
-                )
-
-            root_path = group.iloc[0]["root"]
-
-            if repository_name is None:
-                repo_identifier = root_path
-            else:
-                repo_identifier = repository_name
-            repository = self.find_session_repo(repo_identifier)
-            repository_name = repository["name"]
-
-            files_list = group.apply(lambda row: to_full_path(**row), axis=1).tolist()
-
-            if check_file_exist:
-                if not all([os.path.isfile(file) for file in files_list]):
-                    raise ValueError(
-                        f"Some files don't exist on hard drive. In dataset group {group_name} there was an issue recreating file names from alf spec"
-                    )
-
-            files_list = [os.path.relpath(file, start=root_path) for file in files_list]
-            # make them relative to the session as make_homogeneous_dataset requires that to process them.
-
-            new_dataset = self.make_dataset(files_list, session, repository_name)
-            self.add_files_to_dataset(files_list, new_dataset)
-
-        # update the session object to contain info about the new registered data from the remote database
-
-        new_session_data = self.one.search(
-            id=session_id, no_cache=True, details=True
-        ).iloc[0]
-
-        # we touch the list object that is inside the data_dataset_session_related key of session
-        # we cannot change the cell directly as session is a dataframe view.
-        # first we clear
-        session["data_dataset_session_related"].clear()
-        # then we add new data
-        session["data_dataset_session_related"].extend(
-            new_session_data["data_dataset_session_related"]
-        )
 
     def register_water_administration(self, subject, volume, **kwargs):
         """
@@ -695,168 +471,197 @@ class RegistrationClient:
         }
         return self.one.alyx.rest("weighings", "create", data=wei_)
 
-    def group_files_by_dataset(self, files_list: List[str]) -> Dict[str, pd.DataFrame]:
+    def files(self, session, file_list, repository_name=None):
+        # todo : implement check_file_exist to verify that file exists before registering a phantom path
+        logger = getLogger("registration.files")
 
+        files_df = self.group_files_by_dataset(file_list)
+
+        not_compliant_files = files_df[~files_df.alf_compliant]
+        if len(not_compliant_files):
+            logger.warning(
+                "Some files are not alf compliant, and are skipped for registration : "
+                f"{not_compliant_files.full_path.to_list()}"
+            )
+            # we only keep the compliant files for the next steps
+            files_df = files_df[files_df.alf_compliant]
+
+        # checks that all files belong to the session supplied
+        self.assert_files_match_session(session, files_df)
+
+        if repository_name is not None:
+            self.assert_single_repository(files_df)
+            repository_name = self.find_session_repo(repository_name)
+
+        for dataset_name, file_group in files_df.groupby("dataset_name"):
+            logger.info(f"Dataset {dataset_name}")
+            dataset = self.make_dataset(file_group, session, repository_name)
+            if dataset is None:  # registration of a new dataset failed
+                continue
+            self.add_file_records(file_group, session, dataset)
+
+        # update the session object to contain info about the new registered data from the remote database
+
+        # name attribute of the session pd.series is the database session id (aka primary key or pk)
+        new_session_data = self.one.search(id=session.name, no_cache=True, details=True).iloc[0]
+
+        # we touch the list object that is inside the data_dataset_session_related key of session
+        # we cannot change the cell directly as session is a dataframe view.
+
+        # first we clear
+        session["data_dataset_session_related"].clear()
+        # then we add new data
+        session["data_dataset_session_related"].extend(new_session_data["data_dataset_session_related"])
+
+    def group_files_by_dataset(self, files_list: List[str]) -> Dict[str, pd.DataFrame]:
         def make_dataset_name(row):
+            if not row.alf_compliant:
+                return ""
             collection_name = row.collection + "/" if row.collection else ""
-            dataset_name = collection_name + ".".join([row.object, row.attribute])
+            dataset_name = collection_name + ".".join([row.object, row.attribute, row.extension])
             return dataset_name
 
+        def make_path(row):
+            try:
+                return to_full_path(**row)
+            except Exception as e:  # if we cannot make the alf path from parts, it's not alf compliant
+                return ""
+
+        def make_session_alias(row):
+            if not row.alf_compliant:
+                return ""
+            return rf"{row.subject}/{row.date}/{str(row.number).zfill(3)}"
+
+        def make_alf_compliant_flag(row):
+            if row.relative_path == "":
+                return False
+            return True
+
         results = [
-            full_path_parts(file, as_dict=True, assert_valid=False, absolute=True)
+            {"full_path": file, **full_path_parts(file, as_dict=True, assert_valid=False, absolute=True)}
             for file in files_list
         ]
-        fileparts_df = pd.DataFrame(results)
+        files_df = pd.DataFrame(results)
 
-        fileparts_df["full_path"] = fileparts_df.apply(
-            lambda row: to_full_path(**row), axis=1
-        )
-        fileparts_df["relative_path"] = fileparts_df.apply(
-            lambda row: to_full_path(**row.iloc[1:-1]), axis=1
-        )
-        fileparts_df["dataset_name"] = fileparts_df.apply(
-            make_dataset_name, axis="columns"
-        )
+        # 1:-1 to remove elements root, and full_path for creating relative path from alf parts
+        files_df["relative_path"] = files_df.iloc[:, 2:].apply(make_path, axis="columns")
+        files_df["alf_compliant"] = files_df.apply(make_alf_compliant_flag, axis="columns")
+        files_df["dataset_name"] = files_df.apply(make_dataset_name, axis="columns")
+        files_df["session"] = files_df.apply(make_session_alias, axis="columns")
 
-        return fileparts_df
+        return files_df
 
-    def make_dataset(self, files, session, repository_name):
-        logger = getLogger("registration.make_homogeneous_dataset")
+    def make_dataset(self, files_df, session, repository_name=None, dry=False):
+        logger = getLogger("registration.make_dataset")
+        self.assert_single_repository(files_df)
 
-        # repo_path = cnx.get_data_repository_path(repository_name)
-        session_eid = session.name
+        if repository_name is None:
+            root_path = files_df.iloc[0]["root"]
+            repository_name = self.find_session_repo(root_path)["name"]
 
-        # Verify all goes well for a batch of alf file
-        common_alf_type = {}
-        for file in files:
-            # alf_name = os.path.relpath(file, start = os.path.relpath(session_details["path"], start = repo_path))
-
-            # new version :
-            logger.debug(f"file path is : {file}")
-            try:
-                parts = full_path_parts(file, as_dict=True, absolute=True)
-                for key in ["root", "lab", "subject", "date", "number"]:
-                    parts.pop(key, None)
-            except ValueError:
-                parts = full_path_parts(file, as_dict=True, absolute=False)
-                for key in ["root", "lab", "subject", "date", "number"]:
-                    parts.pop(key, None)
-
-            alf_name = to_full_path(**parts, dromedarize=False)
-
-            if len(common_alf_type):
-                alf_type = rel_path_parts(alf_name.replace("\\", "/"), as_dict=True)
-                logger.debug(f"file parts are : {alf_type}")
-
-                if alf_type["collection"] != common_alf_type["collection"]:
-                    raise ValueError(
-                        "Registering several files under a same dataset require them being under the same collection (session subdirectory)"
-                    )
-                if alf_type["revision"] != common_alf_type["revision"]:
-                    raise NotImplementedError
-                if alf_type["object"] != common_alf_type["object"]:
-                    raise ValueError(
-                        "Registering several files under a same dataset require them having the same object name (first name before dot)"
-                    )
-                if alf_type["attribute"] != common_alf_type["attribute"]:
-                    raise ValueError(
-                        "Registering several files under a same dataset require them having the same attribute name (second name before dot)"
-                    )
-                if alf_type["extension"] != common_alf_type["extension"]:
-                    raise ValueError(
-                        "Registering several files under a same dataset require them having the same extension"
-                    )
-            else:
-                common_alf_type = rel_path_parts(
-                    alf_name.replace("\\", "/"), as_dict=True
+        for unique_item in ["collection", "extension", "object", "attribute"]:
+            if len(files_df[unique_item].unique()) != 1:
+                raise ValueError(
+                    f"Registering several files under a same dataset require them being under the same {unique_item}, "
+                    f"but these were found : {files_df[unique_item].unique()}"
                 )
 
-        if common_alf_type["collection"] is None:
-            common_alf_type["collection"] = ""
+        dataset_name = files_df.dataset_name.iloc[0]
 
-        d = {
+        object = files_df["object"].unique()[0]
+        attribute = files_df["attribute"].unique()[0]
+        dataset_type = object + "." + attribute
+        collection = files_df["collection"].unique()[0]
+        collection.replace("\\", "/")  # in case there is several folders, hence slashes, they should be unix typed
+        extension = "." + files_df["extension"].unique()[0]
+        session_eid = session.name
+
+        new_dataset = {
             "created_by": get_one_params().ALYX_LOGIN,
-            "dataset_type": common_alf_type["object"]
-            + "."
-            + common_alf_type["attribute"],
-            "data_format": "." + common_alf_type["extension"],
-            "collection": common_alf_type["collection"],
+            "dataset_type": dataset_type,
+            "data_format": extension,
+            "collection": collection,
             "session_pk": session_eid,
             "data_repository": repository_name,
         }
 
-        non_accepted_matching_keys = ["dataset_type", "collection"]
+        unique_dataset_keys = ["dataset_type", "collection", "data_format"]
         for existing_dataset in session["data_dataset_session_related"]:
-            booleans = [
-                existing_dataset[key] == d[key] for key in non_accepted_matching_keys
-            ]
-            logger.debug("checking existing dataset : " + str(existing_dataset))
-            if (
-                all(booleans) is True
-            ):  # all keys are matching, the dataset already exists, returning it.
+            booleans = [existing_dataset[key] == new_dataset[key] for key in unique_dataset_keys]
+
+            # if all keys are matching, returning the existing dataset
+            if all(booleans) is True:
                 logger.info(
-                    f"The dataset {session['alias']} - {d['collection']+'/' if d['collection'] else ''}{d['dataset_type']} was already existing. Using it to attach files instead of creating a new one."
+                    f"The dataset {dataset_name} for session {session.alias} "
+                    "was already existing. "
+                    "Using it to attach files instead of creating a new one."
                 )
                 return existing_dataset
 
-        # if it doesn't exist, create it
-        logger.info(f"Registering dataset : {d}")
+        if dry:
+            new_dataset.update({"id": None, "file_records": []})
 
-        new_dataset = self.one.alyx.rest("datasets", "create", data=d)
+        else:
+            # if it doesn't exist, create it
+            try:
+                new_dataset = self.one.alyx.rest("datasets", "create", data=new_dataset)
+                logger.info(f"Registered the new dataset : {dataset_name} for session {session.alias}")
+            except HTTPError as e:
+                logger.info(
+                    f"{type(e).__name__} {e} occured during registration of the new dataset : {dataset_name} "
+                    f"for session {session.alias}."
+                )
+                return None
 
         return new_dataset
 
-    def add_files_to_dataset(self, files, dataset_dict, dry=True):
-        logger = getLogger("registration.add_files_to_homogeneous_dataset")
+    def add_file_records(self, files_df, session, dataset):
+        logger = getLogger("registration.add_file_records")
 
-        existing_files = []
+        existing_files = [os.path.normpath(item["relative_path"]) for item in dataset["file_records"]]
 
-        logger.debug("loading files : " + str(dataset_dict))
-        try:
-            existing_files = list(
-                self.one.alyx.rest(
-                    "files", "list", dataset=dataset_dict["id"], no_cache=True
-                )
+        files_df["file_exists"] = files_df.relative_path.isin(existing_files)
+
+        dataset_name = files_df.dataset_name.iloc[0]
+
+        alread_registered_files = files_df[files_df.file_exists]
+        not_yet_registered_files = files_df[~files_df.file_exists]
+        if len(alread_registered_files):
+            logger.info(
+                f"Found {len(alread_registered_files)} "
+                f"files already registered for the dataset {dataset_name}. Skipping them"
             )
-        except KeyError:
-            pass
+
+        if not len(not_yet_registered_files):
+            # no file to register, return
+            return []
+
+        logger.info(
+            f"Starting registration of {len(not_yet_registered_files)} "
+            f"new files to the dataset {dataset_name} for the session {session.alias}."
+        )
 
         new_records = []
-        for file in files:
-            file = file.replace("\\", "/")
+        for _, file in not_yet_registered_files.iterrows():
+            extra = file.extra
 
-            file_already_existing = False
-
-            for ex_file in existing_files:
-                logger.debug(
-                    f"Comparing {file} and existing {ex_file['relative_path']}"
-                )
-                if file == ex_file["relative_path"]:
-                    logger.error(
-                        f"File {file} already exist in dataset, it was not added"
-                    )
-                    file_already_existing = True
-                    break
-
-            parts = full_path_parts(file, as_dict=True, absolute=False)
-
-            if not file_already_existing:
-                d = {
-                    "dataset": dataset_dict["id"] if dataset_dict is not None else "",
-                    "extra": parts["extra"] if parts["extra"] is not None else "",
-                    "exists": True,
-                }
-                logger.info(f"Registering file : {d}")
-
+            d = {
+                "dataset": dataset["id"],
+                "extra": extra,
+                "exists": True,
+            }
+            try:
                 new_file_record = self.one.alyx.rest("files", "create", data=d)
                 new_records.append(new_file_record)
+            except HTTPError as e:
+                logger.error(
+                    f"A {type(e).__name__} {e} occured while trying to register file "
+                    f"{file.full_path} to dataset {dataset_name}. Skipping"
+                )
 
         return new_records
 
     def find_session_repo(self, repository_identifier: str):
-        logger = getLogger("registration.find_session_repo")
-        repository_path = os.path.normpath(repository_identifier)
-
         if is_uuid_string(repository_identifier):
             try:
                 dataset = self.one.alyx.rest(
@@ -866,9 +671,7 @@ class RegistrationClient:
                     id="05baa7e4-5eb5-4214-a008-c9e5331004b0",
                 )[0]
             except IndexError:
-                raise ValueError(
-                    f"No dataset id corresponds to the identifier {repository_identifier}"
-                )
+                raise ValueError(f"No dataset id corresponds to the identifier {repository_identifier}")
             return dataset
 
         try:
@@ -887,22 +690,29 @@ class RegistrationClient:
                 "data-repository",
                 "list",
                 no_cache=True,
-                data_path=repository_identifier,
+                data_path=os.path.normpath(repository_identifier).replace("\\", "/"),  # make the path unix compliant
             )[0]
             return dataset
         except IndexError:
             pass
 
         raise ValueError(
-            "No existing data repository was found for the location of the files you are trying to register. Either check their location and move them, or add a new data repository"
+            f"No existing data repository was found for the identifier {repository_identifier} "
+            " That you supplied. Either check their location and move them, or add this root as a new DataRepository"
         )
 
-    def assert_single_repo(self, files_list):
-        roots = set()
-        for file in files_list:
-            path_parts = session_path_parts(file, as_dict=True, absolute=True)
-            roots.add(path_parts["root"])
-        if len(roots) > 1:
+    def assert_files_match_session(self, session, files_df):
+        sessions = files_df.session.unique()
+        if len(sessions) != 1:
+            raise ValueError(f"More than one session has been found in the file list : {list(sessions)}")
+        if session.alias != sessions[0]:
             raise ValueError(
-                "More than one data repository was found for the files given. The function cannot register files to more tha one session at once. Please change the file_list input."
+                f"A single session : {sessions[0]} has been found in the file list, "
+                f"but no corresponding to the session {session.alias} supplied."
+            )
+
+    def assert_single_repository(self, files_df):
+        if len(files_df.root.unique()) != 1:
+            raise ValueError(
+                "More than one data repository (e.g. the root of the files) has been found in the file list"
             )
