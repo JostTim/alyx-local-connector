@@ -48,7 +48,7 @@ import tempfile
 from getpass import getpass
 from contextlib import contextmanager
 
-import requests 
+import requests
 from tqdm import tqdm
 
 from pprint import pprint
@@ -226,8 +226,7 @@ class _PaginatedResponse(Mapping):
         res = self.alyx._generic_request(requests.get, query, **self._cache_args)
         if self.count != res["count"]:
             warnings.warn(
-                f"remote results for {urllib.parse.urlsplit(query).path} endpoint changed; "
-                f"results may be inconsistent",
+                f"remote results for {urllib.parse.urlsplit(query).path} endpoint changed; results may be inconsistent",
                 RuntimeWarning,
             )
         for i, r in enumerate(res["results"][: self.count - offset]):
@@ -695,7 +694,7 @@ class AlyxClient:
                 redacted = "*" * len(credentials["password"]) if credentials["password"] else None
                 message = (
                     "Alyx authentication failed with credentials: "
-                    f'user = {credentials["username"]}, password = {redacted}'
+                    f"user = {credentials['username']}, password = {redacted}"
                 )
                 raise requests.HTTPError(rep.status_code, rep.url, message, response=rep)
             else:

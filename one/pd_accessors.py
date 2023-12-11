@@ -30,7 +30,8 @@ class DatasetsDataframeAcessor:
                 missing_fields.append(req_field)
         if len(missing_fields):
             raise AttributeError(
-                f"The dataframe must have some columns to use datasets acessor. This object is missing columns : {','.join(missing_fields)}"
+                "The dataframe must have some columns to use datasets acessor. This object is missing columns :"
+                f" {','.join(missing_fields)}"
             )
 
     def make_fullpaths(self, mode="remote"):
@@ -88,7 +89,8 @@ class DatasetsSeriesAcessor:
                 missing_fields.append(req_field)
         if len(missing_fields):
             raise AttributeError(
-                f"The series must have some columns to use datasets acessor. This object is missing columns : {','.join(missing_fields)}"
+                "The series must have some columns to use datasets acessor. This object is missing columns :"
+                f" {','.join(missing_fields)}"
             )
 
     def make_fullpath(self, mode="remote"):

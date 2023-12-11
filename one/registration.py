@@ -475,6 +475,9 @@ class RegistrationClient:
         # todo : implement check_file_exist to verify that file exists before registering a phantom path
         logger = getLogger("registration.files")
 
+        if len(file_list) == 0:
+            return
+
         files_df = self.group_files_by_dataset(file_list)
 
         not_compliant_files = files_df[~files_df.alf_compliant]
@@ -489,20 +492,20 @@ class RegistrationClient:
         # checks that all files belong to the session supplied
         self.assert_files_match_session(session, files_df)
 
-        if repository_name is not None:
-            self.assert_single_repository(files_df)
-            repository_name = self.find_session_repo(repository_name)
-
         for dataset_name, file_group in files_df.groupby("dataset_name"):
             logger.info(f"Dataset {dataset_name}")
-            dataset = self.make_dataset(file_group, session, repository_name)
+            dataset = self._make_dataset(file_group, session, repository_name)
             if dataset is None:  # registration of a new dataset failed
                 continue
-            self.add_file_records(file_group, session, dataset)
+            self._add_file_records(file_group, session, dataset)
 
+        self.refresh_session_files(session)
+
+    def refresh_session_files(self, session):
         # update the session object to contain info about the new registered data from the remote database
 
         # name attribute of the session pd.series is the database session id (aka primary key or pk)
+
         new_session_data = self.one.search(id=session.name, no_cache=True, details=True).iloc[0]
 
         # we touch the list object that is inside the data_dataset_session_related key of session
@@ -551,13 +554,19 @@ class RegistrationClient:
 
         return files_df
 
-    def make_dataset(self, files_df, session, repository_name=None, dry=False):
+    def _make_dataset(self, files_df, session, repository_name=None, dry=False):
         logger = getLogger("registration.make_dataset")
         self.assert_single_repository(files_df)
 
         if repository_name is None:
-            root_path = files_df.iloc[0]["root"]
-            repository_name = self.find_session_repo(root_path)["name"]
+            repository_name = self.find_session_repo(files_df.iloc[0]["root"])["name"]
+        else:
+            if repository_name == "default_repo_path":
+                repository_name = session.default_data_repository_name
+            else:
+                # here find_session_repo act mostly a validator for the existance of that repo name
+                # (raising if not found, returning the same otherwise)
+                repository_name = self.find_session_repo(repository_name)["name"]
 
         for unique_item in ["collection", "extension", "object", "attribute"]:
             if len(files_df[unique_item].unique()) != 1:
@@ -615,7 +624,7 @@ class RegistrationClient:
 
         return new_dataset
 
-    def add_file_records(self, files_df, session, dataset):
+    def _add_file_records(self, files_df, session, dataset):
         logger = getLogger("registration.add_file_records")
 
         existing_files = [os.path.normpath(item["relative_path"]) for item in dataset["file_records"]]
@@ -716,3 +725,39 @@ class RegistrationClient:
             raise ValueError(
                 "More than one data repository (e.g. the root of the files) has been found in the file list"
             )
+
+    def change_file(self, session, file_pk, exists=None, extra=None):
+        file_pk = self.assert_file_in_session(session, file_pk)
+        new_data = {}
+        if exists is not None:
+            if not isinstance(exists, bool):
+                raise ValueError("'exist' field must be a boolean")
+            new_data["exists"] = exists
+
+        if extra is not None:
+            if not isinstance(extra, str):
+                raise ValueError("'extra' field must be a boolean")
+            new_data["extra"] = extra
+
+        self.one.alyx.rest("files", "partial_update", id=file_pk, data=new_data)
+        self.refresh_session_files(session)
+
+    def delete_file(self, session, file_pk):
+        file_pk = self.assert_file_in_session(session, file_pk)
+        self.one.alyx.rest("files", "delete", id=file_pk)
+        self.refresh_session_files(session)
+
+    def delete_dataset(self, session, dataset_pk):
+        dataset_pk = self.assert_dataset_in_session(session, dataset_pk)
+        self.one.alyx.rest("datasets", "delete", id=dataset_pk)
+        self.refresh_session_files(session)
+
+    def assert_file_in_session(self, session, file_pk):
+        if not any(self.one.list_datasets(session, details=True)["file#"] == file_pk):
+            raise ValueError(f"The file {file_pk} is not part of the session {session.alias} registered files")
+        return file_pk
+
+    def assert_dataset_in_session(self, session, dataset_pk):
+        if not any(self.one.list_datasets(session, details=True)["dataset#"] == dataset_pk):
+            raise ValueError(f"The dataset {dataset_pk} is not part of the session {session.alias} registered datasets")
+        return dataset_pk
