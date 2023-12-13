@@ -24,7 +24,8 @@ import os
 from typing import Dict, List
 from requests.exceptions import HTTPError
 import requests.exceptions
-
+from tqdm import tqdm
+from sys import stdout
 import pandas as pd
 from iblutil.io import hashfile
 
@@ -40,6 +41,7 @@ from .alf.exceptions import AlyxSubjectNotFound, ALFError
 from .util import ensure_list
 from .webclient import no_cache
 from .params import get as get_one_params
+from . import models
 
 
 class RegistrationClient:
@@ -613,6 +615,7 @@ class RegistrationClient:
         else:
             # if it doesn't exist, create it
             try:
+                models.Dataset.assert_valid.dictionnary(new_dataset)
                 new_dataset = self.one.alyx.rest("datasets", "create", data=new_dataset)
                 logger.info(f"Registered the new dataset : {dataset_name} for session {session.alias}")
             except HTTPError as e:
@@ -651,7 +654,14 @@ class RegistrationClient:
         )
 
         new_records = []
-        for _, file in not_yet_registered_files.iterrows():
+
+        for _, file in tqdm(
+            not_yet_registered_files.iterrows(),
+            total=len(not_yet_registered_files),
+            delay=3,
+            desc=f"Registering {len(not_yet_registered_files)} files",
+            file=stdout,
+        ):
             extra = file.extra
 
             d = {
@@ -660,6 +670,7 @@ class RegistrationClient:
                 "exists": True,
             }
             try:
+                models.File.assert_valid.dictionnary(d)
                 new_file_record = self.one.alyx.rest("files", "create", data=d)
                 new_records.append(new_file_record)
             except HTTPError as e:
@@ -726,20 +737,25 @@ class RegistrationClient:
                 "More than one data repository (e.g. the root of the files) has been found in the file list"
             )
 
-    def change_file(self, session, file_pk, exists=None, extra=None):
+    def change_session(self, session, **kwargs):
+        models.Session.assert_valid.dictionnary(kwargs)
+
+        self.one.alyx.rest("sessions", "partial_update", id=session.name, data=kwargs)
+
+    def change_file(self, session, file_pk, **kwargs):
         file_pk = self.assert_file_in_session(session, file_pk)
-        new_data = {}
-        if exists is not None:
-            if not isinstance(exists, bool):
-                raise ValueError("'exist' field must be a boolean")
-            new_data["exists"] = exists
 
-        if extra is not None:
-            if not isinstance(extra, str):
-                raise ValueError("'extra' field must be a boolean")
-            new_data["extra"] = extra
+        models.File.assert_valid.dictionnary(kwargs)
 
-        self.one.alyx.rest("files", "partial_update", id=file_pk, data=new_data)
+        self.one.alyx.rest("files", "partial_update", id=file_pk, data=kwargs)
+        self.refresh_session_files(session)
+
+    def change_dataset(self, session, dataset_pk, **kwargs):
+        dataset_pk = self.assert_dataset_in_session(session, dataset_pk)
+
+        models.Dataset.assert_valid.dictionnary(kwargs)
+
+        self.one.alyx.rest("datasets", "partial_update", id=dataset_pk, data=kwargs)
         self.refresh_session_files(session)
 
     def delete_file(self, session, file_pk):

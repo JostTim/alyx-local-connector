@@ -20,7 +20,8 @@ import requests.exceptions
 
 from iblutil.io import parquet, hashfile
 from iblutil.util import Bunch, flatten
-
+from tqdm import tqdm
+from sys import stdout
 import one.params
 from one.webclient import HTTPError, AlyxClient
 import one.alf.io as alfio
@@ -107,6 +108,9 @@ class One(ConversionMixin):
         "subject",
         "task_protocol",
         "object",
+        "attribute",
+        "data_repository",
+        "default_data_repository",
     )
 
     def __init__(
@@ -1534,33 +1538,23 @@ class OneAlyx(One):
 
         # loop over input arguments and build the url
         search_terms = self.search_terms(query_type=query_type)
-        params = {"django": kwargs.pop("django", "")}
+        params = {}  # {"django": kwargs.pop("django", "")}
         if id is not None:
             params["id"] = self.to_eid(id)
             if params["id"] is None:  # this means the id we supplied is not a valid eid
                 raise ValueError(f"{id} is not a valid identifier, could not convert it to session uuid.")
+        _logger.debug(f"kwargs : {kwargs}")
         for key, value in sorted(kwargs.items()):
             field = util.autocomplete(key, search_terms)  # Validate and get full name
+            _logger.debug(f"field : {field}")
             # check that the input matches one of the defined filters
             if field == "date_range":
                 params[field] = [x.date().isoformat() for x in util.validate_date_range(value)]
-            # elif field == "procedures" :
-            #     query = 'procedures__name,'+','.join(util.ensure_list(value))
-            #     params['django'] += (',' if params['django'] else '') + query
-
-            elif field == "dataset":
-                _logger.warning(
-                    "Beware, the dataset method seems to not be working for now. Please use dataset_types instead"
-                )
-                query = "data_dataset_session_related__dataset_type__name__icontains," + ",".join(
-                    util.ensure_list(value)
-                )
-                params["django"] += ("," if params["django"] else "") + query
             elif field == "laboratory":
                 params["lab"] = value
             else:
                 params[field] = value
-
+        _logger.debug(f"params : {params}")
         # Make GET request
         ses = self.alyx.rest(
             self._search_endpoint,
@@ -1569,32 +1563,33 @@ class OneAlyx(One):
             query_type=query_type,
             **params,
         )
-        # Add date field for compatibility with One.search output
-        if details:
-            sess_df = []
-            for s in ses:
-                s = self.alyx.rest(
-                    "sessions",
-                    "read",
-                    id=s["id"],
-                    no_cache=no_cache,
-                    query_type=query_type,
-                )
-                s = self.to_session_details(s, as_mode=as_mode)
-                sess_df.append(s)
+        ses = list(ses)
+        if len(ses) > 1:
+            _logger.info(f"Found {len(ses)} sessions.")
 
-            try:
-                sess_df = pd.DataFrame(sess_df)
-                sess_df.index = sess_df.index.set_names("id")
-            except (ValueError, KeyError):
-                warnings.warn("search result contained no entry")
-                pass  # could not create a dataframe form session details. Returning dict instead
-            return sess_df
-        else:
-            # LazyId only transforms records when indexex : More annoying than usefull when using small amount of
-            # sessions, using list to convert it to normal list
-            eids = list(util.LazyId(ses))
-            return eids
+        if not details:
+            return [item["id"] for item in ses]
+            # list(util.LazyId(ses))
+
+        sess_df = []
+        for session_short_info in tqdm(ses, total=len(ses), delay=2, desc="Loading session details", file=stdout):
+            session_detailed_info = self.alyx.rest(
+                "sessions",
+                "read",
+                id=session_short_info["id"],
+                no_cache=no_cache,
+                query_type=query_type,
+            )
+            formated_session = self.to_session_details(session_detailed_info, as_mode=as_mode)
+            sess_df.append(formated_session)
+
+        try:
+            sess_df = pd.DataFrame(sess_df)
+            sess_df.index = sess_df.index.set_names("id")
+        except (ValueError, KeyError):
+            warnings.warn("search result contained no entry")
+            pass  # could not create a dataframe form session details. Returning dict instead
+        return sess_df
 
     def to_session_details(self, session_dict, as_mode=None):
         data_access_mode = (
