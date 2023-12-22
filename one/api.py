@@ -1589,6 +1589,8 @@ class OneAlyx(One):
         except (ValueError, KeyError):
             warnings.warn("search result contained no entry")
             pass  # could not create a dataframe form session details. Returning dict instead
+        if id is not None:
+            return sess_df.iloc[0]
         return sess_df
 
     def to_session_details(self, session_dict, as_mode=None):
