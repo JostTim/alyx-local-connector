@@ -1,0 +1,23 @@
+image: python:3.11
+
+documentation:
+  script:
+    - python -m pip install --upgrade pip
+    - pip install auto_fast_docs
+    - auto_fast_docs ${CI_PROJECT_NAME} --username '${GITLAB_USER_NAME}' --platform 'gitlab:pasteur.fr' --group haisslab/data-management --layout src
+  artifacts:
+    paths:
+      - ${CI_PROJECT_DIR}/public
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+publish:
+  variables:
+    TWINE_PASSWORD: ${PIPY_TOKEN}
+    TWINE_USERNAME: __token__
+  script:
+    - pip install build twine
+    - python -m build
+    - python -m twine upload --repository pypi dist/*
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"

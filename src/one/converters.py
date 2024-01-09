@@ -218,9 +218,7 @@ class ConversionMixin:
         # reduce session records from cache
         toDate = datetime.date.fromisoformat
         subject, date, number = session_path.parts[-3:]
-        for col, val in zip(
-            ("subject", "date", "number"), (subject, toDate(date), int(number))
-        ):
+        for col, val in zip(("subject", "date", "number"), (subject, toDate(date), int(number))):
             sessions = sessions[sessions[col] == val]
             if sessions.size == 0:
                 return
@@ -338,9 +336,7 @@ class ConversionMixin:
         else:
             raise ValueError("Could not determine uuid")
 
-        session_path, rel_path = (
-            record[["session_path", "rel_path"]].to_numpy().flatten()
-        )
+        session_path, rel_path = record[["session_path", "rel_path"]].to_numpy().flatten()
         url = PurePosixPath(session_path, rel_path)
         return webclient.rel_path2url(add_uuid_string(url, uuid).as_posix())
 
@@ -360,16 +356,12 @@ class ConversionMixin:
             File path for the record
         """
         assert isinstance(dataset, pd.Series) or len(dataset) == 1
-        session_path, rel_path = (
-            dataset[["session_path", "rel_path"]].to_numpy().flatten()
-        )
+        session_path, rel_path = dataset[["session_path", "rel_path"]].to_numpy().flatten()
         file = Path(self.cache_dir, session_path, rel_path)
         return file  # files[0] if len(datasets) == 1 else files
 
     @recurse
-    def eid2ref(
-        self, eid: Union[str, Iter], as_dict=True, parse=True
-    ) -> Union[str, Mapping, List]:
+    def eid2ref(self, eid: Union[str, Iter], as_dict=True, parse=True) -> Union[str, Mapping, List]:
         """
         Get human-readable session ref from path
 
@@ -446,9 +438,7 @@ class ConversionMixin:
          '7dc3c44b-225f-4083-be3d-07b8562885f4']
         """
         ref = self.ref2dict(ref, parse=False)  # Ensure dict
-        session = self.search(
-            subject=ref["subject"], date_range=str(ref["date"]), number=ref["sequence"]
-        )
+        session = self.search(subject=ref["subject"], date_range=str(ref["date"]), number=ref["sequence"])
         assert len(session) == 1, "session not found"
         return session[0]
 
@@ -521,61 +511,7 @@ class ConversionMixin:
         match = re.search(pattern, str(path_str))
         if match:
             ref = match.groupdict()
-            return (
-                Bunch(ref)
-                if as_dict
-                else "{date:s}_{sequence:s}_{subject:s}".format(**ref)
-            )
-
-    def ref2dj(self, ref: Union[str, Mapping, Iter]):
-        """
-        Return an ibl-pipeline sessions table, restricted by experiment reference(s)
-
-        Parameters
-        ----------
-        ref : str, list, dict
-            One or more objects with keys ('subject', 'date', 'sequence'), or strings with
-            the form yyyy-mm-dd_n_subject
-
-        Returns
-        -------
-        acquisition.Session
-            An acquisition.Session table corresponding to the ref
-
-        Examples
-        --------
-        >>> ref2dj('2020-06-20_2_CSHL046').fetch1()
-        Connecting...
-        {'subject_uuid': UUID('dffc24bc-bd97-4c2a-bef3-3e9320dc3dd7'),
-         'session_start_time': datetime.datetime(2020, 6, 20, 13, 31, 47),
-         'session_number': 2,
-         'session_date': datetime.date(2020, 6, 20),
-         'subject_nickname': 'CSHL046'}
-        >>> len(ref2dj({'date':'2020-06-20', 'sequence':'002', 'subject':'CSHL046'}))
-        1
-        >>> len(ref2dj(['2020-06-20_2_CSHL046', '2019-11-01_1_ibl_witten_13']))
-        2
-        """
-        from ibl_pipeline import subject, acquisition
-
-        sessions = acquisition.Session.proj(
-            "session_number", session_date="date(session_start_time)"
-        )
-        sessions = sessions * subject.Subject.proj("subject_nickname")
-
-        ref = self.ref2dict(ref)  # Ensure dict-like
-
-        @recurse
-        def restrict(r):
-            date, sequence, subject = dict(sorted(r.items())).values()  # Unpack sorted
-            restriction = {
-                "subject_nickname": subject,
-                "session_number": sequence,
-                "session_date": date,
-            }
-            return restriction
-
-        return sessions & restrict(ref)
+            return Bunch(ref) if as_dict else "{date:s}_{sequence:s}_{subject:s}".format(**ref)
 
     @staticmethod
     def is_exp_ref(ref: Union[str, Mapping, Iter]) -> Union[bool, List[bool]]:
@@ -671,11 +607,7 @@ class ConversionMixin:
         if not ref_dict:
             return
         parsed = any(not isinstance(k, str) for k in ref_dict.values())
-        format_str = (
-            "{date:%Y-%m-%d}_{sequence:d}_{subject:s}"
-            if parsed
-            else "{date:s}_{sequence:s}_{subject:s}"
-        )
+        format_str = "{date:%Y-%m-%d}_{sequence:d}_{subject:s}" if parsed else "{date:s}_{sequence:s}_{subject:s}"
         return format_str.format(**ref_dict)
 
 
@@ -724,9 +656,7 @@ def path_from_dataset(dset, root_path=PurePosixPath("/"), repository=None, uuid=
     if isinstance(dset, list):
         return [path_from_dataset(d) for d in dset]
     if repository:
-        fr = next(
-            (fr for fr in dset["file_records"] if fr["data_repository"] == repository)
-        )
+        fr = next((fr for fr in dset["file_records"] if fr["data_repository"] == repository))
     else:
         fr = next((fr for fr in dset["file_records"] if fr["data_url"]))
     uuid = dset["url"][-36:] if uuid else None

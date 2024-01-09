@@ -82,9 +82,7 @@ def _key_from_url(url: str) -> str:
     'test.alyx.internationalbrainlab.org'
     """
     url = unicodedata.normalize("NFKC", url)  # Ensure ASCII
-    url = re.sub("^https?://", "", url).strip(
-        "/"
-    )  # Remove protocol and trialing slashes
+    url = re.sub("^https?://", "", url).strip("/")  # Remove protocol and trialing slashes
     url = re.sub(r"[^.\w\s-]", "_", url.lower())  # Convert non word chars to underscore
     return re.sub(r"[-\s]+", "-", url)  # Convert spaces to hyphens
 
@@ -124,9 +122,7 @@ def setup(client=None, silent=False, make_default=None, username=None):
 
     # Load the db URL map
     cache_map = iopar.read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {"CLIENT_MAP": dict()})
-    cache_dir = cache_map.CLIENT_MAP.get(
-        client_key, Path(CACHE_DIR_DEFAULT, client_key)
-    )
+    cache_dir = cache_map.CLIENT_MAP.get(client_key, Path(CACHE_DIR_DEFAULT, client_key))
 
     if not silent:
         par = iopar.as_dict(par_default)
@@ -141,15 +137,11 @@ def setup(client=None, silent=False, make_default=None, username=None):
 
             if k == "ALYX_URL":
                 if not client:
-                    par[k] = (
-                        input(f'Param {k}, current value is ["{str(cpar)}"]:') or cpar
-                    )
+                    par[k] = input(f'Param {k}, current value is ["{str(cpar)}"]:') or cpar
                     if "://" not in par[k]:
                         par[k] = "https://" + par[k]
                     url_parsed = urlsplit(par[k])
-                    if not (
-                        url_parsed.netloc and re.match("https?", url_parsed.scheme)
-                    ):
+                    if not (url_parsed.netloc and re.match("https?", url_parsed.scheme)):
                         raise ValueError(f"{k} must be valid HTTP URL")
                     client = par[k]
             # Iterate through other non-password pars
@@ -161,14 +153,11 @@ def setup(client=None, silent=False, make_default=None, username=None):
         # prompt = f'Enter the FlatIron HTTP password for {par["HTTP_DATA_SERVER_LOGIN"]} '\
         #         '(leave empty to keep current): '
         # par['HTTP_DATA_SERVER_PWD'] = getpass(prompt) or cpar
-
+        prompt = ""
         if "ALYX_PWD" in par_current.as_dict():
             # Only store plain text password if user manually added it to params JSON file
             cpar = _get_current_par("ALYX_PWD", par_current)
-            prompt = (
-                f'Enter the Alyx password for {par["ALYX_LOGIN"]} '
-                "(leave empty to keep current):"
-            )
+            prompt = f'Enter the Alyx password for {par["ALYX_LOGIN"]} (leave empty to keep current):'
             par["ALYX_PWD"] = getpass(prompt) or cpar
 
         # create the LOCAL_ROOT directory if it does not exist
@@ -179,9 +168,7 @@ def setup(client=None, silent=False, make_default=None, username=None):
         # Prompt for cache directory
         client_key = _key_from_url(par.ALYX_URL)
         cache_dir = Path(CACHE_DIR_DEFAULT, client_key)
-        answer = input(
-            "Would you like to keep the default database cache location ? [Y/n]"
-        )
+        answer = input("Would you like to keep the default database cache location ? [Y/n]")
         if (answer or "y")[0].lower() == "n":
             prompt = f'Enter the location of the database cache, current value is ["{cache_dir}"]:'
             cache_dir = input(prompt) or cache_dir
@@ -253,9 +240,7 @@ def get(client=None, silent=False, username=None):
     if not cache_map or (client_key and client_key not in cache_map.CLIENT_MAP):
         cache_map = setup(client=client, silent=silent, username=username)
     cache = cache_map.CLIENT_MAP[client_key or cache_map.DEFAULT]
-    pars = iopar.read(f"{_PAR_ID_STR}/{client_key or cache_map.DEFAULT}").set(
-        "CACHE_DIR", cache
-    )
+    pars = iopar.read(f"{_PAR_ID_STR}/{client_key or cache_map.DEFAULT}").set("CACHE_DIR", cache)
     if username:
         pars = pars.set("ALYX_LOGIN", username)
     return _patch_params(pars)
@@ -349,9 +334,7 @@ def check_cache_conflict(cache_dir):
     AssertionError
         The directory is set as a cache for a Web client
     """
-    cache_map = getattr(
-        iopar.read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {}), "CLIENT_MAP", None
-    )
+    cache_map = getattr(iopar.read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {}), "CLIENT_MAP", None)
     if cache_map:
         assert not any(x == str(cache_dir) for x in cache_map.values())
 

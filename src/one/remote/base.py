@@ -4,7 +4,7 @@ All supported access protocols are defined in ALYX_JSON.
 
 Remote parameters:
     - All parameters are stored in the .remote JSON file.
-    - The base keys are access protocols (e.g. 'globus').
+    - The base keys are access protocols.
     - Each contains a map of ID to parameters (e.g. keys such as 'default', 'admin').
     - load_client_params and save_client_params are used to read/write these params.
 
@@ -25,14 +25,10 @@ from iblutil.io import params as iopar
 from one.params import _PAR_ID_STR
 
 """tuple: Default order of precedence for download protocol"""
-PROC_PRECEDENCE = ('aws', 'http', 'globus', 'kachary')
-ALYX_JSON = {
-    'access_protocol': {
-        ('aws', 'http', 'kachary', 'globus')
-    }
-}
+PROC_PRECEDENCE = ("http", "kachary")
+ALYX_JSON = {"access_protocol": {("http", "kachary")}}
 """str: Location of the remote download client parameters"""
-PAR_ID_STR = f'{_PAR_ID_STR}/remote'
+PAR_ID_STR = f"{_PAR_ID_STR}/remote"
 _logger = logging.getLogger(__name__)
 
 
@@ -65,21 +61,12 @@ def load_client_params(client_key=None, assert_present=True):
     Load all remote parameters
 
     >>> pars = load_client_params()
-
-    Load all glogus parameters or return None if non-existent
-
-    >>> pars = load_client_params('globus', assert_present=False)
-
-    Load parameters for a specific globus profile
-
-    >>> pars = load_client_params('globus.admin')
-
     """
     try:
         p = iopar.read(PAR_ID_STR)
         if not client_key:
             return p
-        for k in client_key.split('.'):
+        for k in client_key.split("."):
             p = iopar.from_dict(getattr(p, k))
         return p
     except (FileNotFoundError, AttributeError) as ex:
@@ -106,7 +93,7 @@ def save_client_params(new_pars, client_key=None):
     """
     if not client_key:
         if not all(isinstance(x, dict) for x in iopar.as_dict(new_pars).values()):
-            raise ValueError('Not all parameter fields contain dicts')
+            raise ValueError("Not all parameter fields contain dicts")
         return iopar.write(PAR_ID_STR, new_pars)  # Save all parameters
     # Save parameters into client key field
     pars = iopar.as_dict(iopar.read(PAR_ID_STR, {}) or {})
@@ -116,6 +103,7 @@ def save_client_params(new_pars, client_key=None):
 
 class DownloadClient:
     """Data download handler base class"""
+
     def __init__(self):
         pass
 
@@ -137,4 +125,4 @@ class DownloadClient:
     @staticmethod
     def repo_from_alyx(name, alyx):
         """Return the data repository information for a given data repository"""
-        return alyx.rest('data-repository', 'read', id=name)
+        return alyx.rest("data-repository", "read", id=name)

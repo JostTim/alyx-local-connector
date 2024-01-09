@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools >= 66.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alyx_connector"
+authors = [
+    { name = "Timothé Jost-Mousseau", email = "timothe.jost-mousseau@pasteur.fr" },
+]
+maintainers = [
+    { name = "Timothé Jost-Mousseau", email = "timothe.jost-mousseau@pasteur.fr" },
+]
+description = "Alyx Connector, based on the Open Neurophysiology Environment"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dynamic = ["version", "dependencies", "optional-dependencies"]
+
+[project.urls]
+homepage = "https://gitlab.pasteur.fr/haisslab/data-management/ONE"
+repository = "https://gitlab.pasteur.fr/haisslab/data-management/ONE"
+documentation = "https://gitlab.pasteur.fr/haisslab/data-management/ONE"
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+version = { attr = "one.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

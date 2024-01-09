@@ -1642,53 +1642,6 @@ class OneAlyx(One):
             _logger.debug(ex)
         return self._download_dataset(dsets, **kwargs)
 
-    def _download_aws(self, dsets, update_exists=True, **_) -> List[Path]:
-        _logger = logging.getLogger("_download_aws")
-        # Download datasets from AWS
-        import one.remote.aws as aws
-
-        s3, bucket_name = aws.get_s3_from_alyx(self.alyx)
-        if self._index_type() is int:
-            raise NotImplementedError("AWS download only supported for str index cache")
-        assert self.mode != "local"
-        # Get all dataset URLs
-        dsets = list(dsets)  # Ensure not generator
-        uuids = [util.ensure_list(x.name)[-1] for x in dsets]
-        remote_records = self.alyx.rest("datasets", "list", exists=True, django=f"id__in,{uuids}")
-        remote_records = sorted(remote_records, key=lambda x: uuids.index(x["url"].split("/")[-1]))
-        out_files = []
-        for dset, uuid, record in zip(dsets, uuids, remote_records):
-            # Fetch file record path
-            record = next(
-                (x for x in record["file_records"] if x["data_repository"].startswith("aws") and x["exists"]),
-                None,
-            )
-            if record is None:
-                continue
-            if not record and update_exists and "exists_aws" in self._cache["datasets"]:
-                _logger.debug("Updating exists field")
-                self._cache["datasets"].loc[(slice(None), uuid), "exists_aws"] = False
-                self._cache["_meta"]["modified_time"] = datetime.now()
-                out_files.append(None)
-                continue
-            source_path = PurePosixPath(record["data_repository_path"], record["relative_path"])
-            source_path = add_uuid_string(source_path, uuid)
-            local_path = alfio.remove_uuid_file(
-                self.cache_dir.joinpath(dset["session_path"], dset["rel_path"]),
-                dry=True,
-            )
-            local_path.parent.mkdir(exist_ok=True, parents=True)
-            out_files.append(
-                aws.s3_download_file(
-                    source_path,
-                    local_path,
-                    s3=s3,
-                    bucket_name=bucket_name,
-                    overwrite=update_exists,
-                )
-            )
-        return out_files
-
     def _dset2url(self, dset, update_cache=True):
         """
         Converts a dataset into a remote HTTP server URL.  The dataset may be one or more of the
