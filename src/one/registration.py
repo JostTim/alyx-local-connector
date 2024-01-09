@@ -474,7 +474,19 @@ class RegistrationClient:
         return self.one.alyx.rest("weighings", "create", data=wei_)
 
     def files(self, session, file_list, repository_name=None):
-        # todo : implement check_file_exist to verify that file exists before registering a phantom path
+        """
+        This method checks for the existence of files, groups them by dataset,
+        validates their compliance, checks their session match, and adds their records.
+
+        Args:
+            session (object): An object that represents the session to which the files belong.
+            file_list (list): A list of files to be checked and processed.
+            repository_name (str, optional): The name of the repository where the files are stored. Defaults to None.
+
+        Raises:
+            It may raise exceptions if the files do not match the provided session. The exact exceptions depend on the
+            implementation of 'assert_files_match_session'.
+        """
         logger = getLogger("registration.files")
 
         if len(file_list) == 0:
@@ -508,7 +520,7 @@ class RegistrationClient:
 
         # name attribute of the session pd.series is the database session id (aka primary key or pk)
 
-        new_session_data = self.one.search(id=session.name, no_cache=True, details=True).iloc[0]
+        new_session_data = self.one.search(id=session.name, no_cache=True, details=True)
 
         # we touch the list object that is inside the data_dataset_session_related key of session
         # we cannot change the cell directly as session is a dataframe view.
