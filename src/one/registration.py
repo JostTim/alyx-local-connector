@@ -11,6 +11,7 @@ create_sessions - Create sessions and register files for folder containing a giv
 register_session - Create a session on Alyx from local path and register any ALF datasets present
 register_files - Register a list of files to their respective sessions on Alyx
 """
+
 import pathlib
 import uuid
 from pathlib import Path, PurePosixPath
