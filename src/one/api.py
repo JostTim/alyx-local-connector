@@ -1,4 +1,5 @@
 """Classes for searching, listing and (down)loading ALyx Files."""
+
 import collections.abc
 import warnings
 import logging
@@ -15,7 +16,7 @@ import threading
 
 import pandas as pd
 import numpy as np
-from numpy.dtypes import ObjectDType, StrDType
+from numpy import dtype as npdtype
 import requests.exceptions
 
 from iblutil.io import parquet, hashfile
@@ -713,11 +714,14 @@ class One(ConversionMixin):
     def list_datasets(
         self,
         eid=None,
+        *,
         filename=None,
         collection=None,
         revision=None,
         details=False,
         query_type=None,
+        object=None,
+        as_mode=None,
     ) -> Union[np.ndarray, pd.DataFrame]:
         """
         Given an eid, return the datasets for those sessions.  If no eid is provided,
@@ -1273,7 +1277,7 @@ class OneAlyx(One):
         as_mode=None,
         no_cache=False,
         **filters,
-    ) -> Union[np.ndarray, pd.DataFrame]:
+    ) -> np.ndarray | pd.DataFrame | List[str]:
         """_summary_
 
         Args:
@@ -1415,7 +1419,8 @@ class OneAlyx(One):
                 # syntax as input
                 # to do that we convert * wildcards to .* in regex and add a ^ and $ at start and end of pattern
                 # to force a complete string length match.
-                if isinstance(dataframe[key].dtype, (ObjectDType, StrDType)):
+
+                if dataframe[key].dtype is npdtype("O") or dataframe[key].dtype is npdtype(str):
                     queries.append(f"{key}.str.match('^' + {repr(value).replace('*', '.*')} + '$') ")  #
                 # if the columns is not a sting, we match it directly.
                 else:
@@ -1539,6 +1544,17 @@ class OneAlyx(One):
         # loop over input arguments and build the url
         search_terms = self.search_terms(query_type=query_type)
         params = {}  # {"django": kwargs.pop("django", "")}
+
+        if isinstance(id, (list, tuple)):
+            sessions = []
+            for i in id:
+                sessions.append(
+                    self.search(
+                        id=i, details=details, as_mode=as_mode, no_cache=no_cache, query_type=query_type, **kwargs
+                    )
+                )
+            return pd.DataFrame(sessions)
+
         if id is not None:
             params["id"] = self.to_eid(id)
             if params["id"] is None:  # this means the id we supplied is not a valid eid
