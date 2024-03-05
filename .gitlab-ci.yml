@@ -4,7 +4,7 @@ documentation:
   script:
     - python -m pip install --upgrade pip
     - pip install auto_fast_docs
-    - auto_fast_docs ${CI_PROJECT_NAME} --username '${GITLAB_USER_NAME}' --platform 'gitlab:pasteur.fr' --group haisslab/data-management --layout src
+    - auto_fast_docs one --username '${GITLAB_USER_NAME}' --platform 'gitlab:pasteur.fr' --group haisslab/data-management --layout src
   artifacts:
     paths:
       - ${CI_PROJECT_DIR}/public

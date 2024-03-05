@@ -1,5 +1,5 @@
 """The Open Neurophysiology Environment (ONE) API"""
-__version__ = "2.1.4"
+__version__ = "2.1.5"
 
 from . import api
 from .api import ONE
