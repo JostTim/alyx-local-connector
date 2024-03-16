@@ -715,13 +715,14 @@ class One(ConversionMixin):
         self,
         eid=None,
         *,
-        filename=None,
-        collection=None,
-        revision=None,
+        # filename=None,
+        # collection=None,
+        # revision=None,
         details=False,
         query_type=None,
         object=None,
         as_mode=None,
+        **filters,
     ) -> Union[np.ndarray, pd.DataFrame]:
         """
         Given an eid, return the datasets for those sessions.  If no eid is provided,
@@ -776,6 +777,9 @@ class One(ConversionMixin):
 
         >>> datasets = one.list_datasets(eid, {'object': ['wheel', 'trial?']})
         """
+
+        raise NotImplementedError("This function has been temporarily deprectaded as long as a rework is ncesessary")
+
         datasets = self._cache["datasets"]
         filter_args = dict(
             collection=collection,
@@ -1728,7 +1732,7 @@ class OneAlyx(One):
 
         return url
 
-    def _download_dataset(self, dset, cache_dir=None, update_cache=True, **kwargs) -> List[Path]:
+    def _download_dataset(self, dset, cache_dir=None, update_cache=True, **kwargs) -> List[Path | None]:
         """
         Download a single or multitude of dataset from an Alyx REST dictionary.
 
@@ -1789,7 +1793,7 @@ class OneAlyx(One):
                     f"Failed to tag remote file record mismatch: {ex}\nPlease contact the database administrator."
                 )
 
-    def _download_file(self, url, target_dir, keep_uuid=False, file_size=None, hash=None):
+    def _download_file(self, url, target_dir, keep_uuid=False, file_size=None, hash=None) -> Path | List[Path]:
         """
         Downloads a single file or multitude of files from an HTTP webserver.
         The webserver in question is set by the AlyxClient object.
