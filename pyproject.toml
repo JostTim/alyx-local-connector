@@ -3,7 +3,7 @@ requires = ["setuptools >= 66.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "alyx_connector"
+name = "alyx-connector"
 authors = [
     { name = "Timothé Jost-Mousseau", email = "timothe.jost-mousseau@pasteur.fr" },
 ]
