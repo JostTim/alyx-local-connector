@@ -1549,7 +1549,7 @@ class OneAlyx(One):
         limit : int
             The number of results to fetch in one go (if pagination enabled on server)
 
-            
+
 
 
         Returns
@@ -1603,7 +1603,6 @@ class OneAlyx(One):
             query_type=query_type,
             **params,
         )
-        ses = list(ses)
         if len(ses) > 1:
             _logger.info(f"Found {len(ses)} sessions.")
 
@@ -2339,7 +2338,7 @@ class OneAlyx(One):
             - file_list (list of str): a list of local file paths to be copied to the remote session directory.
             - session_details (SessionDetails): an object containing the session details.
             - relative: If the string representing the path of the files are absolute or relative from
-                INSIDE the session folder (ex : 'D:\LOCAL_DATA\wm25\2022-08-05\001\a_folder\test.file'
+                INSIDE the session folder (ex : 'D:\\LOCAL_DATA\\wm25\\2022-08-05\\001\\a_folder\\test.file'
                 is an absolute path and 'a_folder\test.file' is a relative path)
             - overwrite_policy (str, optional): the overwrite policy. Possibilities are:
               - "raise" (raise an exception if a file with the same name already exists in the remote directory),

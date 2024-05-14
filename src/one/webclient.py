@@ -59,6 +59,8 @@ from iblutil.io.params import set_hidden
 from one.util import ensure_list
 import concurrent.futures
 
+from types import MethodType
+
 _logger = logging.getLogger(__name__)
 
 
@@ -185,7 +187,7 @@ class _PaginatedResponse(Mapping):
     >>> r = _PaginatedResponse(client, response)
     """
 
-    def __init__(self, alyx, rep, cache_args=None):
+    def __init__(self, alyx, rep, cache_args=None, callbacks=[]):
         """
         A paginated response cache object
 
@@ -198,7 +200,9 @@ class _PaginatedResponse(Mapping):
         cache_args : dict
             A dict of kwargs to pass to _cache_response decorator upon subsequent requests
         """
+
         self.alyx = alyx
+        self.base_url = self.alyx.base_url
         self.count = rep["count"]
         self.limit = len(rep["results"])
         self._cache_args = cache_args or {}
@@ -206,22 +210,37 @@ class _PaginatedResponse(Mapping):
         self.query = rep["next"]
         # init the cache, list with None with count size
         self._cache = [None] * self.count
+
+        if not isinstance(callbacks, list):
+            callbacks = [callbacks]
+
+        self.finishing_callbacks = callbacks
+
         # fill the cache with results of the query
-        for i in range(self.limit):
-            self._cache[i] = rep["results"][i]
+        self.store_results(rep, 0)
 
     def __len__(self):
         return self.count
 
     def __getitem__(self, item):
+        """Returns an item from cache if the indices locations are already loaded,
+        or populates the cache chunk by chunk if some locations are empty.
+        """
         if isinstance(item, slice):
             while None in self._cache[item]:
+                # .index(None) finds the first location where the cache is none,
+                # and populate stores a new chunk starting from here
                 self.populate(self._cache[item].index(None))
+        elif item > self.count:
+            raise IndexError(
+                f"The paginated response has no item at position {item} : " f"it contains only {self.count} items"
+            )
         elif self._cache[item] is None:
             self.populate(item)
         return self._cache[item]
 
     def populate(self, idx):
+        """Populate a chunk of size self.limit, from an offset query depending on the value of the index required."""
         offset = self.limit * math.floor(idx / self.limit)
         query = update_url_params(self.query, {"limit": self.limit, "offset": offset})
         res = self.alyx._generic_request(requests.get, query, **self._cache_args)
@@ -230,19 +249,31 @@ class _PaginatedResponse(Mapping):
                 f"remote results for {urllib.parse.urlsplit(query).path} endpoint changed; results may be inconsistent",
                 RuntimeWarning,
             )
+        self.store_results(res, offset)
+
+    def store_results(self, res, offset):
         for i, r in enumerate(res["results"][: self.count - offset]):
-            self._cache[i + offset] = res["results"][i]
+            self._cache[i + offset] = self.finish_result(r)
+
+    def finish_result(self, result):
+        """Method that should be overridden in child classes"""
+        for callback in self.finishing_callbacks:
+            result = callback(result)
+        return result
+
+    def add_finishing_callback(self, callback):
+        if callback not in self.finishing_callbacks:
+            self.finishing_callbacks.append(callback)
 
     def __iter__(self):
         for i in range(self.count):
             try:
                 yield self.__getitem__(i)
             except requests.HTTPError as e:
-                if e.response.status_code == 404:
-                    return  # if we have 404 error :
-                    # The requested resource was not found on this server,
-                    # we probably used a "limit" argument to the request, so we simply pass and deplete the generator
-                raise e  # else we want to see the error message to check the problem
+                _logger.error(
+                    f"{e.response.status_code} error while trying to access " f"PaginatedResponse data at position {i}"
+                )
+                raise e
 
 
 def update_url_params(url: str, params: dict) -> str:
@@ -565,6 +596,7 @@ class AlyxClient:
         # Delayed fetch of rest schemes speeds up instantiation
         if not self._rest_schemes:
             self._rest_schemes = self.get("/docs", expires=timedelta(weeks=1))
+            _logger.debug(f"Rest schemes : {self._rest_schemes}")
         return self._rest_schemes
 
     @property
@@ -600,7 +632,10 @@ class AlyxClient:
         if not self._token and (not self._headers or "Authorization" not in self._headers):
             self.authenticate(username=self.user)
         # makes sure the base url is the one from the instance
-        rest_query = rest_query.replace(self.base_url, "")
+
+        # make sure we keep only the path and query part of the url, without the netloc and scheme
+        rest_query = urllib.parse.urlsplit(rest_query)._replace(netloc="", scheme="").geturl()
+
         if not rest_query.startswith("/"):
             rest_query = "/" + rest_query
         _logger.debug(f"{self.base_url + rest_query}, headers: {self._headers}")
@@ -887,50 +922,68 @@ class AlyxClient:
         assert not path.startswith("http")
         return f"{self._par.HTTP_DATA_SERVER}/{path}"
 
-    def rel_path2admin_url(self, path):
-        path = str(path).strip("/")
-        if path.startswith("http"):
-            return path
-        return f"{self._par.ALYX_URL}/{path}"
+    # def rel_path2admin_url(self, path):
+    #     path = str(path).strip("/")
+    #     if path.startswith("http"):
+    #         return path
+    #     return f"{self._par.ALYX_URL}/{path}"
 
-    def urlify_dict(self, l_result):
-        keys_to_update = []
-        for key, value in l_result.items():
-            if "admin_url" in key:
-                keys_to_update.append(key)
-            if isinstance(value, dict):
-                l_result[key] = self.urlify_dict(l_result[key])
-            elif isinstance(value, list):
-                l_result[key] = self.urlify_list(l_result[key])
-        for key in keys_to_update:
-            l_result[key] = self.rel_path2admin_url(l_result[key])
+    # def urlify_dict(self, l_result):
+    #     keys_to_update = []
+    #     for key, value in l_result.items():
+    #         if "admin_url" in key:
+    #             keys_to_update.append(key)
+    #         if isinstance(value, dict):
+    #             l_result[key] = self.urlify_dict(l_result[key])
+    #         elif isinstance(value, list):
+    #             l_result[key] = self.urlify_list(l_result[key])
+    #     for key in keys_to_update:
+    #         l_result[key] = self.rel_path2admin_url(l_result[key])
 
-        return l_result
+    #     return l_result
 
-    def urlify_list(self, l_result):
-        for index, value in enumerate(l_result):
-            if isinstance(value, dict):
-                l_result[index] = self.urlify_dict(l_result[index])
-        return l_result
+    # def urlify_list(self, l_result):
+    #     for index, value in enumerate(l_result):
+    #         if isinstance(value, dict):
+    #             l_result[index] = self.urlify_dict(l_result[index])
+    #     return l_result
 
-    def urlify_paginated_response(self, l_result):
-        for item in l_result:
-            if isinstance(item, list):
-                yield self.urlify_list(item)
-            elif isinstance(item, dict):
-                yield self.urlify_dict(item)
-            else:
-                raise TypeError
+    # def urlify_paginated_response(self, l_result):
+    #     for item in l_result:
+    #         if isinstance(item, list):
+    #             yield self.urlify_list(item)
+    #         elif isinstance(item, dict):
+    #             yield self.urlify_dict(item)
+    #         else:
+    #             raise TypeError
 
-    def urlify_result(self, result):
-        if isinstance(result, _PaginatedResponse):
-            return self.urlify_paginated_response(result)
-        elif isinstance(result, dict):
-            return self.urlify_dict(result)
-        elif isinstance(result, list):
-            return self.urlify_list(result)
+    def fix_url(self, data, fixed_keys=["admin_url"], do_fix=False):
+
+        if isinstance(data, list):
+            return [self.fix_url(item, do_fix=False) for item in data]
+        elif isinstance(data, dict):
+            return {
+                key: (self.fix_url(item, do_fix=True) if key in fixed_keys else self.fix_url(item, do_fix=False))
+                for key, item in data.items()
+            }
+        elif isinstance(data, _PaginatedResponse):
+            data.add_finishing_callback(self.fix_url)
+            return data
+        elif do_fix:
+            baseurl = urllib.parse.urlsplit(self.base_url)
+            return urllib.parse.urlsplit(data)._replace(scheme=baseurl.scheme, netloc=baseurl.netloc).geturl()
         else:
-            raise TypeError(f"HTTP Request result was not a dict nor a _PaginatedResponse but type : {type(result)}")
+            return data
+
+    # def urlify_result(self, result):
+    #     if isinstance(result, _PaginatedResponse):
+    #         return self.urlify_paginated_response(result)
+    #     elif isinstance(result, dict):
+    #         return self.urlify_dict(result)
+    #     elif isinstance(result, list):
+    #         return self.urlify_list(result)
+    #     else:
+    #         raise TypeError(f"HTTP Request result was not a dict nor a _PaginatedResponse but type : {type(result)}")
 
     def get(self, rest_query, **kwargs):
         """
@@ -959,10 +1012,15 @@ class AlyxClient:
         ]:
             if len(rep["results"]) < rep["count"]:
                 cache_args = {k: v for k, v in kwargs.items() if k in ("clobber", "expires")}
-                rep = _PaginatedResponse(self, rep, cache_args)
+                _logger.debug(f"Creating a paginated response for a large Alyx request. Query : {rest_query}")
+                rep = _PaginatedResponse(self, rep, cache_args, callbacks=self.fix_url)
+                _logger.debug(
+                    f"Paginated response total size is : {rep.count}. "
+                    f"Limit size is : {rep.limit}. Query is : {rep.query}"
+                )
             else:
                 rep = rep["results"]
-        return self.urlify_result(rep)
+        return self.fix_url(rep)
 
     def patch(self, rest_query, data=None, files=None):
         """
@@ -984,7 +1042,7 @@ class AlyxClient:
         Response object
         """
         rep = self._generic_request(requests.patch, rest_query, data=data, files=files)
-        return self.urlify_result(rep)
+        return self.fix_url(rep)
 
     def post(self, rest_query, data=None, files=None):
         """
@@ -1006,7 +1064,7 @@ class AlyxClient:
         Response object
         """
         rep = self._generic_request(requests.post, rest_query, data=data, files=files)
-        return self.urlify_result(rep)
+        return self.fix_url(rep)
 
     def put(self, rest_query, data=None, files=None):
         """
@@ -1029,7 +1087,7 @@ class AlyxClient:
             Response object
         """
         rep = self._generic_request(requests.put, rest_query, data=data, files=files)
-        return self.urlify_result(rep)
+        return self.fix_url(rep)
 
     def rest(
         self,
@@ -1206,8 +1264,13 @@ class AlyxClient:
                                 lookup_keys = json_chain_keys[-1].split("__")
                                 if "not" in lookup_keys:
                                     lookup_keys.pop(lookup_keys.index("not"))
-                                if len(lookup_keys) == 2:
+
+                                if len(lookup_keys) == 1:
+                                    lookup_key = "exact"
+                                elif len(lookup_keys) == 2:
                                     lookup_key = lookup_keys[1]
+                                elif len(lookup_keys) == 0:
+                                    raise ValueError(f"A json key cannot be __not. It was : {json_chain_keys[-1]}")
                                 else:
                                     raise ValueError(
                                         "Found several lookup parameters, but only one lookup param + an optionnal "
