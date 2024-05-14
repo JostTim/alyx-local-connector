@@ -350,6 +350,8 @@ class One(ConversionMixin):
                 raise KeyError(f'Table "{table}" not in cache')
             if isinstance(records, pd.Series):
                 records = pd.DataFrame([records])
+            if not isinstance(records, pd.DataFrame):
+                raise TypeError(f"records must be a dataframe but was : {type(records)}")
             try:
                 if not strict:
                     # Deal with case where there are extra columns in the cache
@@ -359,7 +361,7 @@ class One(ConversionMixin):
                         records.insert(n, col, np.nan)
                     # Drop any extra columns in the records that aren't in cache table
                     if len(self._cache[table].columns):
-                        to_drop = set(records.columns) - set(self._cache[table].columns)
+                        to_drop = list(set(records.columns) - set(self._cache[table].columns))
                         records.drop(to_drop, axis=1, inplace=True)
                     records = records.reindex(columns=self._cache[table].columns)
                 assert all(self._cache[table].columns == records.columns)
@@ -1523,6 +1525,21 @@ class OneAlyx(One):
         location : str, list
             A str or list of lab location (as per Alyx definition) name
             Note: this corresponds to the specific rig, not the lab geographical location per se
+        json : dict
+            example :
+                ```python
+                    json = {
+                        "whisker_stims": {
+                            "amplitudes": {
+                                "abstract__contains": ['10-0','10-10','10_90-0']
+                                }
+                            }
+                        }
+                ```
+            allowed filter looups are listed here :
+            https://docs.djangoproject.com/en/5.0/ref/models/querysets/#field-lookups
+
+
         dataset_types : str, list
             One or more of dataset_types
         details : bool
@@ -1531,6 +1548,9 @@ class OneAlyx(One):
             Query cache ('local') or Alyx database ('remote')
         limit : int
             The number of results to fetch in one go (if pagination enabled on server)
+
+            
+
 
         Returns
         -------

@@ -28,6 +28,7 @@ Download a remote file, given a local path
 >>> url = 'zadorlab/Subjects/flowers/2018-07-13/1/channels.probe.npy'
 >>> local_path = alyx.download_file(url, target_dir='zadorlab/Subjects/flowers/2018-07-13/1/')
 """
+
 import json
 import logging
 import math
@@ -1082,14 +1083,35 @@ class AlyxClient:
         """
 
         def get_values_key_chain(dictionary, keys=[]):
-            # this function takes as input a dict, with arbitrary nested values,
-            # and outputs a list of tuples containing a value, and the ordered list of nested keys to find them.
+            """
+            Recursively retrieves all values from a nested dictionary along with their key paths.
+
+            Args:
+                dictionary (dict): The dictionary to extract values and key paths from.
+                keys (list): The list of keys that leads to the current value. Defaults to an empty list.
+
+            Returns:
+                list of tuples: Each tuple contains a value from the dictionary and the list of keys
+                                that leads to that value.
+
+            Example:
+                Input: dictionary = {'a': 1, 'b': {'c': 2, 'd': {'e': 3}}}
+                Output: [(1, ['a']), (2, ['b', 'c']), (3, ['b', 'd', 'e'])]
+            """
+
+            # Initialize a list to store value-key path pairs
             pairs = []
+
+            # Iterate over key-value pairs in the current dictionary
             for key, value in dictionary.items():
+                # If the value is a dictionary, recursively call the function to handle the nested dict
                 if isinstance(value, dict):
                     pairs.extend(get_values_key_chain(value, keys + [key]))
                 else:
+                    # If the value is not a dictionary, append the value and its key path to the pairs list
                     pairs.append((value, keys + [key]))
+
+            # Return the list of value-key path pairs
             return pairs
 
         # if endpoint is None, list available endpoints
@@ -1171,14 +1193,44 @@ class AlyxClient:
             if kwargs:
                 query_params = []
                 for key, value in kwargs.items():
-                    # we found a json based filtering, so we assume the key is a json field.
+                    # if searched value is a dict, it must be a json compatible field, so we proceed like it.
+                    # if not, the backend django server will throw an error anyways
                     if isinstance(value, dict):
                         values_keys = get_values_key_chain(value)
                         values = []
                         for json_value, json_chain_keys in values_keys:
-                            json_query = f"{'__'.join(json_chain_keys)},{json_value}"
-                            values.append(json_query)
 
+                            # if there is a __lookup_str at the end of the last dict key :
+                            lookup_key = "exact"
+                            if "__" in json_chain_keys[-1]:
+                                lookup_keys = json_chain_keys[-1].split("__")
+                                if "not" in lookup_keys:
+                                    lookup_keys.pop(lookup_keys.index("not"))
+                                if len(lookup_keys) == 2:
+                                    lookup_key = lookup_keys[1]
+                                else:
+                                    raise ValueError(
+                                        "Found several lookup parameters, but only one lookup param + an optionnal "
+                                        f"'__not' are allowed. The problematic syntax was : {json_chain_keys[-1]}"
+                                    )
+                                _logger.debug(f"Filtering on lookup json field : {lookup_key}")
+
+                            # we use lookup_key just to know how to compose the query string, in the subsequent if check
+                            # but we do not inject it in there, as it should already be present if we find it,
+                            # and if not, "exact" will be used by the django backend by default
+
+                            # if lookup key is contains or icontains, and we require several values (list or tuple)
+                            # we must make a separate query filter string for each required value in json_value
+                            if "contains" in lookup_key and isinstance(json_value, (list, tuple)):
+                                for item in json_value:
+                                    json_query = f"{'__'.join(json_chain_keys)},{item}"
+                                    values.append(json_query)
+                            else:
+                                json_query = f"{'__'.join(json_chain_keys)},{json_value}"
+                                values.append(json_query)
+
+                        # multiple json queries are grouped with a ; They will be splitted in with the same char in the
+                        # backend, so the dict keys and values must not contain ; or it will break
                         value = ";".join(values)
 
                     query_params.append((key, ",".join(map(str, ensure_list(value)))))
