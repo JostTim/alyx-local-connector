@@ -1649,6 +1649,10 @@ class OneAlyx(One):
 
         session_dict["rel_path"] = Path(session_dict["rel_path"])
 
+        session_dict["start_datetime"] = pd.to_datetime(
+            datetime.strptime(session_dict["start_time"], "%Y-%m-%dT%H:%M:%S%z"), utc=True
+        )
+
         id = session_dict.pop("id")
 
         session_details = pd.Series(session_dict, name=id)
