@@ -8,7 +8,9 @@ from datetime import datetime, timedelta
 from functools import lru_cache, partial, wraps
 from inspect import unwrap
 from pathlib import Path, PurePosixPath
-import os, copy, shutil
+import os
+import copy
+import shutil
 from typing import Any, Union, Optional, List, Tuple
 from uuid import UUID
 import time
@@ -72,7 +74,8 @@ class MultiSessionPlaceholder(pd.core.series.Series):
             if data_repository == "local":
                 data_path = one.params.get().LOCAL_ROOT
             else:
-                data_path = self._get_connector().alyx.rest("data-repository", "read", data_repository)["data_path"]
+                data_path = self._get_connector().alyx.rest(
+                    "data-repository", "read", data_repository)["data_path"]
         if data_path == "":
             raise ValueError(
                 "Data path cannot be empty string. Must either be obtained by supplying data_repository argument, "
@@ -219,7 +222,8 @@ class One(ConversionMixin):
             meta["expired"] = True
             meta["raw"] = {}
             self._cache.update({"datasets": pd.DataFrame(), "sessions": pd.DataFrame()})
-        created = [datetime.fromisoformat(x["date_created"]) for x in meta["raw"].values() if "date_created" in x]
+        created = [datetime.fromisoformat(x["date_created"])
+                   for x in meta["raw"].values() if "date_created" in x]
         if created:
             meta["created_time"] = min(created)
             meta["expired"] |= datetime.now() - meta["created_time"] > self.cache_expiry
@@ -372,13 +376,15 @@ class One(ConversionMixin):
                 # Assign new rows
                 to_assign = records[~to_update]
                 if (
-                    isinstance(self._cache[table].index, pd.MultiIndex) or isinstance(to_assign.index, pd.MultiIndex)
+                    isinstance(self._cache[table].index, pd.MultiIndex) or isinstance(
+                        to_assign.index, pd.MultiIndex)
                 ) and not to_assign.empty:
                     # Concatenate and sort (no other way for non-unique index within MultiIndex)
                     self._cache[table] = pd.concat([self._cache[table], to_assign]).sort_index()
                 else:
                     for index, record in to_assign.iterrows():
-                        self._cache[table].loc[index, :] = record[self._cache[table].columns].values
+                        self._cache[table].loc[index,
+                                               :] = record[self._cache[table].columns].values
             except KeyError as e:
                 _logger.debug(
                     f"Local cache could not be updated : {type(e).__name__} : {e} for cachefield {table} with values \n"
@@ -780,7 +786,8 @@ class One(ConversionMixin):
         >>> datasets = one.list_datasets(eid, {'object': ['wheel', 'trial?']})
         """
 
-        raise NotImplementedError("This function has been temporarily deprectaded as long as a rework is ncesessary")
+        raise NotImplementedError(
+            "This function has been temporarily deprectaded as long as a rework is ncesessary")
 
         datasets = self._cache["datasets"]
         filter_args = dict(
@@ -883,7 +890,8 @@ class One(ConversionMixin):
         )
         datasets = self.list_datasets(details=True, **filter_kwargs).copy()
 
-        datasets["collection"] = datasets.rel_path.apply(lambda x: rel_path_parts(x, assert_valid=False)[0] or "")
+        datasets["collection"] = datasets.rel_path.apply(
+            lambda x: rel_path_parts(x, assert_valid=False)[0] or "")
         if details:
             return {k: table.drop("collection", axis=1) for k, table in datasets.groupby("collection")}
         else:
@@ -1192,7 +1200,7 @@ class OneAlyx(One):
             super().load_cache(cache_dir)  # Reload cache after download
         except (requests.exceptions.HTTPError, HTTPError) as ex:
             _logger.debug(ex)
-            ##REMOVED THIS WARNING FOR NOW AS I CAN'T FIND IF IT IS ACTUALLY USEFULL TO HAVE A REMOTE CACHE WHEN
+            ## REMOVED THIS WARNING FOR NOW AS I CAN'T FIND IF IT IS ACTUALLY USEFULL TO HAVE A REMOTE CACHE WHEN
             # SETUPING A LOCAL USE OF ALYX LIKE WE DO
             # _logger.error('Failed to load the remote cache file')
             self.mode = "remote"
@@ -1373,7 +1381,8 @@ class OneAlyx(One):
                 # return super().list_datasets(eid, details=details, query_type=query_type, **filters)
 
             session_details = self.to_session_details(
-                self.alyx.rest("sessions", "read", id=eid, query_type=query_type, no_cache=no_cache)
+                self.alyx.rest("sessions", "read", id=eid,
+                               query_type=query_type, no_cache=no_cache)
             )
         # session, datasets = util.ses2records(self.alyx.rest('sessions', 'read', id=eid))
         # self._update_cache_from_records(sessions=session, datasets=datasets.copy()
@@ -1403,13 +1412,15 @@ class OneAlyx(One):
                         "local_full_path": os.path.normpath(os.path.join(dataset["local_root"], file["relative_path"])),
                     }
                 )
-                file["full_path"] = file[data_access_mode + "_full_path"]  # remote or local depending on current mode
+                # remote or local depending on current mode
+                file["full_path"] = file[data_access_mode + "_full_path"]
                 file.update(dataset)
                 file_records.append(file)
 
         dataframe = pd.DataFrame(file_records)
         if dataframe.empty:
-            _logger.warning("No dataset found for this session. Are you sure you ran the file registration routine ?")
+            _logger.warning(
+                "No dataset found for this session. Are you sure you ran the file registration routine ?")
             return dataframe if details else []
 
         dataframe.set_index(["session#", "dataset#", "file#"])
@@ -1418,7 +1429,8 @@ class OneAlyx(One):
         # query_string = ' & '.join([f'{k} == {repr(v)}' for k, v in filters.items()])
         if filters:
             if "filename" in filters.keys():
-                filters["file_name"] = filters.pop("filename")  # allowing filename for retrocompatibility
+                # allowing filename for retrocompatibility
+                filters["file_name"] = filters.pop("filename")
             queries = []
             for key, value in filters.items():
                 # if the columns correspunding to filter is object or string, we try to match using wildcard type
@@ -1427,7 +1439,8 @@ class OneAlyx(One):
                 # to force a complete string length match.
 
                 if dataframe[key].dtype is npdtype("O") or dataframe[key].dtype is npdtype(str):
-                    queries.append(f"{key}.str.match('^' + {repr(value).replace('*', '.*')} + '$') ")  #
+                    queries.append(
+                        f"{key}.str.match('^' + {repr(value).replace('*', '.*')} + '$') ")  #
                 # if the columns is not a sting, we match it directly.
                 else:
                     queries.append(f"{key} == {value}")
@@ -1582,7 +1595,8 @@ class OneAlyx(One):
         if id is not None:
             params["id"] = self.to_eid(id)
             if params["id"] is None:  # this means the id we supplied is not a valid eid
-                raise ValueError(f"{id} is not a valid identifier, could not convert it to session uuid.")
+                raise ValueError(
+                    f"{id} is not a valid identifier, could not convert it to session uuid.")
         _logger.debug(f"kwargs : {kwargs}")
         for key, value in sorted(kwargs.items()):
             field = util.autocomplete(key, search_terms)  # Validate and get full name
@@ -1645,7 +1659,8 @@ class OneAlyx(One):
         session_dict["remote_path"] = os.path.normpath(
             session_dict["path"]
         )  # path is the remote path initially (out from the database)
-        session_dict["path"] = session_dict[data_access_mode + "_path"]  # we set path depending on the data_access_mode
+        # we set path depending on the data_access_mode
+        session_dict["path"] = session_dict[data_access_mode + "_path"]
 
         session_dict["rel_path"] = Path(session_dict["rel_path"])
 
@@ -2212,11 +2227,12 @@ class OneAlyx(One):
         )
         return out
 
-    ###METHODS ADDED BY TIMOTHE TO EXTEND THE USE OF THE API
+    ### METHODS ADDED BY TIMOTHE TO EXTEND THE USE OF THE API
 
     def get_data_repository_path(self, repository_name):
         repo_data = self.alyx.rest("data-repository", "read", repository_name)
-        repo_path = r"\\" + os.path.join(repo_data["hostname"], repo_data["globus_path"].lstrip("/"))
+        repo_path = r"\\" + \
+            os.path.join(repo_data["hostname"], repo_data["globus_path"].lstrip("/"))
         return os.path.normpath(repo_path)
 
     def read_sql(self, query):
@@ -2280,7 +2296,8 @@ class OneAlyx(One):
     def get_parts_from_path(self, input_path):
         import re
 
-        subject, date, number = re.findall(r"(\w+)(?:\\|\/)(\d{4}-\d{2}-\d{2})(?:\\|\/)(\d+)", input_path)[0]
+        subject, date, number = re.findall(
+            r"(\w+)(?:\\|\/)(\d{4}-\d{2}-\d{2})(?:\\|\/)(\d+)", input_path)[0]
         return {"subject": subject, "date": date, "number": number}
 
     def get_json_params(self, eid):
@@ -2297,7 +2314,8 @@ class OneAlyx(One):
         )
         metadatas_link = f"[Metadatas]({session_details.url}) obtained in {self.mode} mode."
         uuid = f"(uuid is '{session_details.name}')"
-        display(Markdown(f"Session {session_details.rel_path}. {session_data_link} {metadatas_link} {uuid}"))
+        display(
+            Markdown(f"Session {session_details.rel_path}. {session_data_link} {metadatas_link} {uuid}"))
 
     @wraps(MultiSessionPlaceholder)
     def multisession(*args, **kwargs):
@@ -2382,7 +2400,8 @@ class OneAlyx(One):
 
             commonprefix = os.path.commonprefix([common_root_path, absolute_path])
             if commonprefix == "":
-                raise IOError(f"These two pathes have no common root path : {absolute_path} and {common_root_path}")
+                raise IOError(
+                    f"These two pathes have no common root path : {absolute_path} and {common_root_path}")
             return os.path.relpath(absolute_path, start=commonprefix)
 
         overwrite_policies = ["raise", "skip", "erase", "most_recent", "overwrite"]
@@ -2399,10 +2418,12 @@ class OneAlyx(One):
             file_list = [file_list]
 
         if relative:
-            file_list = [os.path.join(session_local_root, session_details.rel_path, file) for file in file_list]
+            file_list = [os.path.join(session_local_root, session_details.rel_path, file)
+                         for file in file_list]
 
         source_files = []  # file paths that have been copied
-        dest_files = []  # files paths of the copies of the one in the list above (ordered similarly)
+        # files paths of the copies of the one in the list above (ordered similarly)
+        dest_files = []
 
         overwrite_raise_list = (
             []
@@ -2461,7 +2482,8 @@ class OneAlyx(One):
         # APPLY THE COPY
         for local_path, remote_path in zip(source_files, dest_files):
             container_dir = os.path.dirname(remote_path)
-            os.makedirs(container_dir, exist_ok=True)  # make destination dir if it doesn't exist already
+            # make destination dir if it doesn't exist already
+            os.makedirs(container_dir, exist_ok=True)
             shutil.copy(local_path, remote_path)
 
         return {
@@ -2488,7 +2510,8 @@ class OneAlyx(One):
 
             commonprefix = os.path.commonprefix([common_root_path, absolute_path])
             if commonprefix == "":
-                raise IOError(f"These two pathes have no common root path : {absolute_path} and {common_root_path}")
+                raise IOError(
+                    f"These two pathes have no common root path : {absolute_path} and {common_root_path}")
             return os.path.relpath(absolute_path, start=commonprefix)
 
         # Check if the overwrite_policy is supported
@@ -2567,3 +2590,52 @@ class OneAlyx(One):
 #       if not overwrite_policy in overwrite_policies :
 #           raise NotImplementedError(f"Value {overwrite_policy} for overwrite_policy is not supported.
 #           Possibilities are : {overwrite_policies}")
+
+
+class Session(pd.Series):
+    def __new__(
+        cls,
+        series=None,
+        *,
+        subject=None,
+        date=None,
+        number=None,
+        path=None,
+        auto_path=False,
+        date_format=None,
+        zfill=3,
+        separator="_",
+    ):
+        if series is None:
+            series = pd.Series()
+
+        if subject is not None:
+            series["subject"] = subject
+        if date is not None:
+            series["date"] = date
+        if number is not None or "number" not in series.index:
+            series["number"] = number
+        if path is not None:
+            series["path"] = path
+
+        series.pipeline  # verify the series complies with pipeline acessor
+
+        if auto_path:
+            series["path"] = os.path.normpath(
+                os.path.join(
+                    series["path"],
+                    series.pipeline.subject(),
+                    series.pipeline.date(date_format),
+                    series.pipeline.number(zfill),
+                )
+            )
+
+        if series.name is None:
+            series.name = series.pipeline.alias(
+                separator=separator, zfill=zfill, date_format=date_format)
+
+        if "alias" not in series.index:
+            series["alias"] = series.pipeline.alias(
+                separator=separator, zfill=zfill, date_format=date_format)
+
+        return series
