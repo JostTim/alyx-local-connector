@@ -74,8 +74,7 @@ class MultiSessionPlaceholder(pd.core.series.Series):
             if data_repository == "local":
                 data_path = one.params.get().LOCAL_ROOT
             else:
-                data_path = self._get_connector().alyx.rest(
-                    "data-repository", "read", data_repository)["data_path"]
+                data_path = self._get_connector().alyx.rest("data-repository", "read", data_repository)["data_path"]
         if data_path == "":
             raise ValueError(
                 "Data path cannot be empty string. Must either be obtained by supplying data_repository argument, "
@@ -222,8 +221,7 @@ class One(ConversionMixin):
             meta["expired"] = True
             meta["raw"] = {}
             self._cache.update({"datasets": pd.DataFrame(), "sessions": pd.DataFrame()})
-        created = [datetime.fromisoformat(x["date_created"])
-                   for x in meta["raw"].values() if "date_created" in x]
+        created = [datetime.fromisoformat(x["date_created"]) for x in meta["raw"].values() if "date_created" in x]
         if created:
             meta["created_time"] = min(created)
             meta["expired"] |= datetime.now() - meta["created_time"] > self.cache_expiry
@@ -376,15 +374,13 @@ class One(ConversionMixin):
                 # Assign new rows
                 to_assign = records[~to_update]
                 if (
-                    isinstance(self._cache[table].index, pd.MultiIndex) or isinstance(
-                        to_assign.index, pd.MultiIndex)
+                    isinstance(self._cache[table].index, pd.MultiIndex) or isinstance(to_assign.index, pd.MultiIndex)
                 ) and not to_assign.empty:
                     # Concatenate and sort (no other way for non-unique index within MultiIndex)
                     self._cache[table] = pd.concat([self._cache[table], to_assign]).sort_index()
                 else:
                     for index, record in to_assign.iterrows():
-                        self._cache[table].loc[index,
-                                               :] = record[self._cache[table].columns].values
+                        self._cache[table].loc[index, :] = record[self._cache[table].columns].values
             except KeyError as e:
                 _logger.debug(
                     f"Local cache could not be updated : {type(e).__name__} : {e} for cachefield {table} with values \n"
@@ -786,8 +782,7 @@ class One(ConversionMixin):
         >>> datasets = one.list_datasets(eid, {'object': ['wheel', 'trial?']})
         """
 
-        raise NotImplementedError(
-            "This function has been temporarily deprectaded as long as a rework is ncesessary")
+        raise NotImplementedError("This function has been temporarily deprectaded as long as a rework is ncesessary")
 
         datasets = self._cache["datasets"]
         filter_args = dict(
@@ -890,8 +885,7 @@ class One(ConversionMixin):
         )
         datasets = self.list_datasets(details=True, **filter_kwargs).copy()
 
-        datasets["collection"] = datasets.rel_path.apply(
-            lambda x: rel_path_parts(x, assert_valid=False)[0] or "")
+        datasets["collection"] = datasets.rel_path.apply(lambda x: rel_path_parts(x, assert_valid=False)[0] or "")
         if details:
             return {k: table.drop("collection", axis=1) for k, table in datasets.groupby("collection")}
         else:
@@ -1381,8 +1375,7 @@ class OneAlyx(One):
                 # return super().list_datasets(eid, details=details, query_type=query_type, **filters)
 
             session_details = self.to_session_details(
-                self.alyx.rest("sessions", "read", id=eid,
-                               query_type=query_type, no_cache=no_cache)
+                self.alyx.rest("sessions", "read", id=eid, query_type=query_type, no_cache=no_cache)
             )
         # session, datasets = util.ses2records(self.alyx.rest('sessions', 'read', id=eid))
         # self._update_cache_from_records(sessions=session, datasets=datasets.copy()
@@ -1419,8 +1412,7 @@ class OneAlyx(One):
 
         dataframe = pd.DataFrame(file_records)
         if dataframe.empty:
-            _logger.warning(
-                "No dataset found for this session. Are you sure you ran the file registration routine ?")
+            _logger.warning("No dataset found for this session. Are you sure you ran the file registration routine ?")
             return dataframe if details else []
 
         dataframe.set_index(["session#", "dataset#", "file#"])
@@ -1439,8 +1431,7 @@ class OneAlyx(One):
                 # to force a complete string length match.
 
                 if dataframe[key].dtype is npdtype("O") or dataframe[key].dtype is npdtype(str):
-                    queries.append(
-                        f"{key}.str.match('^' + {repr(value).replace('*', '.*')} + '$') ")  #
+                    queries.append(f"{key}.str.match('^' + {repr(value).replace('*', '.*')} + '$') ")  #
                 # if the columns is not a sting, we match it directly.
                 else:
                     queries.append(f"{key} == {value}")
@@ -1595,8 +1586,7 @@ class OneAlyx(One):
         if id is not None:
             params["id"] = self.to_eid(id)
             if params["id"] is None:  # this means the id we supplied is not a valid eid
-                raise ValueError(
-                    f"{id} is not a valid identifier, could not convert it to session uuid.")
+                raise ValueError(f"{id} is not a valid identifier, could not convert it to session uuid.")
         _logger.debug(f"kwargs : {kwargs}")
         for key, value in sorted(kwargs.items()):
             field = util.autocomplete(key, search_terms)  # Validate and get full name
@@ -1639,6 +1629,7 @@ class OneAlyx(One):
         try:
             sess_df = pd.DataFrame(sess_df)
             sess_df.index = sess_df.index.set_names("id")
+            sess_df["start_datetime"] = pd.to_datetime(sess_df["start_datetime"], utc=True)
         except (ValueError, KeyError):
             warnings.warn("search result contained no entry")
             pass  # could not create a dataframe form session details. Returning dict instead
@@ -1661,12 +1652,9 @@ class OneAlyx(One):
         )  # path is the remote path initially (out from the database)
         # we set path depending on the data_access_mode
         session_dict["path"] = session_dict[data_access_mode + "_path"]
-
         session_dict["rel_path"] = Path(session_dict["rel_path"])
 
-        session_dict["start_datetime"] = pd.to_datetime(
-            datetime.strptime(session_dict["start_time"], "%Y-%m-%dT%H:%M:%S%z"), utc=True
-        )
+        session_dict["start_datetime"] = datetime.strptime(session_dict["start_time"], "%Y-%m-%dT%H:%M:%S%z")
 
         id = session_dict.pop("id")
 
@@ -2231,8 +2219,7 @@ class OneAlyx(One):
 
     def get_data_repository_path(self, repository_name):
         repo_data = self.alyx.rest("data-repository", "read", repository_name)
-        repo_path = r"\\" + \
-            os.path.join(repo_data["hostname"], repo_data["globus_path"].lstrip("/"))
+        repo_path = r"\\" + os.path.join(repo_data["hostname"], repo_data["globus_path"].lstrip("/"))
         return os.path.normpath(repo_path)
 
     def read_sql(self, query):
@@ -2296,8 +2283,7 @@ class OneAlyx(One):
     def get_parts_from_path(self, input_path):
         import re
 
-        subject, date, number = re.findall(
-            r"(\w+)(?:\\|\/)(\d{4}-\d{2}-\d{2})(?:\\|\/)(\d+)", input_path)[0]
+        subject, date, number = re.findall(r"(\w+)(?:\\|\/)(\d{4}-\d{2}-\d{2})(?:\\|\/)(\d+)", input_path)[0]
         return {"subject": subject, "date": date, "number": number}
 
     def get_json_params(self, eid):
@@ -2314,8 +2300,7 @@ class OneAlyx(One):
         )
         metadatas_link = f"[Metadatas]({session_details.url}) obtained in {self.mode} mode."
         uuid = f"(uuid is '{session_details.name}')"
-        display(
-            Markdown(f"Session {session_details.rel_path}. {session_data_link} {metadatas_link} {uuid}"))
+        display(Markdown(f"Session {session_details.rel_path}. {session_data_link} {metadatas_link} {uuid}"))
 
     @wraps(MultiSessionPlaceholder)
     def multisession(*args, **kwargs):
@@ -2400,8 +2385,7 @@ class OneAlyx(One):
 
             commonprefix = os.path.commonprefix([common_root_path, absolute_path])
             if commonprefix == "":
-                raise IOError(
-                    f"These two pathes have no common root path : {absolute_path} and {common_root_path}")
+                raise IOError(f"These two pathes have no common root path : {absolute_path} and {common_root_path}")
             return os.path.relpath(absolute_path, start=commonprefix)
 
         overwrite_policies = ["raise", "skip", "erase", "most_recent", "overwrite"]
@@ -2418,8 +2402,7 @@ class OneAlyx(One):
             file_list = [file_list]
 
         if relative:
-            file_list = [os.path.join(session_local_root, session_details.rel_path, file)
-                         for file in file_list]
+            file_list = [os.path.join(session_local_root, session_details.rel_path, file) for file in file_list]
 
         source_files = []  # file paths that have been copied
         # files paths of the copies of the one in the list above (ordered similarly)
@@ -2510,8 +2493,7 @@ class OneAlyx(One):
 
             commonprefix = os.path.commonprefix([common_root_path, absolute_path])
             if commonprefix == "":
-                raise IOError(
-                    f"These two pathes have no common root path : {absolute_path} and {common_root_path}")
+                raise IOError(f"These two pathes have no common root path : {absolute_path} and {common_root_path}")
             return os.path.relpath(absolute_path, start=commonprefix)
 
         # Check if the overwrite_policy is supported
@@ -2631,11 +2613,9 @@ class Session(pd.Series):
             )
 
         if series.name is None:
-            series.name = series.pipeline.alias(
-                separator=separator, zfill=zfill, date_format=date_format)
+            series.name = series.pipeline.alias(separator=separator, zfill=zfill, date_format=date_format)
 
         if "alias" not in series.index:
-            series["alias"] = series.pipeline.alias(
-                separator=separator, zfill=zfill, date_format=date_format)
+            series["alias"] = series.pipeline.alias(separator=separator, zfill=zfill, date_format=date_format)
 
         return series
