@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from functools import lru_cache, partial, wraps
 from inspect import unwrap
 from pathlib import Path, PurePosixPath
+from enum import Enum
 import os
 import copy
 import shutil
@@ -1008,7 +1009,7 @@ class One(ConversionMixin):
 
 
 @lru_cache(maxsize=1)
-def ONE(*, mode="auto", data_access_mode="local", wildcards=True, **kwargs):
+def ONE(*, mode="auto", data_access_mode="remote", wildcards=True, **kwargs):
     """ONE API factory
     Determine which class to instantiate depending on parameters passed.
 
