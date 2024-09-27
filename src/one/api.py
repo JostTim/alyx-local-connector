@@ -37,6 +37,8 @@ from .registration import RegistrationClient
 from one.converters import ConversionMixin
 import one.util as util
 
+from .files import FileTransferManager
+
 # _logger = logging.getLogger(__name__)
 
 """int: The number of download threads"""
@@ -1007,6 +1009,10 @@ class One(ConversionMixin):
         make_parquet_db(cache_dir, **kwargs)
         return One(cache_dir, mode="local")
 
+    @property
+    def files_manager(self):
+        return FileTransferManager
+
 
 @lru_cache(maxsize=1)
 def ONE(*, mode="auto", data_access_mode="remote", wildcards=True, **kwargs):
@@ -1048,9 +1054,13 @@ def ONE(*, mode="auto", data_access_mode="remote", wildcards=True, **kwargs):
     """
     _logger = logging.getLogger("ONE")
 
-    if any(x in kwargs for x in ("base_url", "username", "password")) or not kwargs.get("cache_dir", False):
+    if (
+        any(x in kwargs for x in ("base_url", "username", "password"))
+        or not kwargs.get("cache_dir", False)
+        or mode == "local"
+    ):
         return OneAlyx(mode=mode, data_access_mode=data_access_mode, wildcards=wildcards, **kwargs)
-
+    print("ENFOIRAX")
     # If cache dir was provided and corresponds to one configured with an Alyx client, use OneAlyx
     try:
         one.params.check_cache_conflict(kwargs.get("cache_dir"))
