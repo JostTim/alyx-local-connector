@@ -8,11 +8,14 @@ from pathlib import Path
 class AlyxDataframeAcessorsRegistry:
     def __init__(self, pandas_obj) -> None:
         self.pandas_obj = pandas_obj
-        self._validate(self.pandas_obj)
 
     @property
     def datasets(self):
         return DatasetsDataframeAcessor(self.pandas_obj)
+
+    @property
+    def sessions(self):
+        return SessionsDataframeAccessor(self.pandas_obj)
 
 
 @pd.api.extensions.register_series_accessor("alyx")
@@ -32,10 +35,42 @@ class AlyxSeriesAcessorsRegistry:
     def files(self):
         return FilesSeriesAccessor(self.pandas_obj)
 
+    @property
+    def session(self):
+        return SessionSeriesAccessor(self.pandas_obj)
+
 
 class PlotSeriesAcessor:
     def __init__(self, pandas_obj) -> None:
         self.pandas_obj = pandas_obj
+
+
+class SessionsDataframeAccessor:
+
+    def __init__(self, pandas_obj) -> None:
+        self._obj: pd.DataFrame = pandas_obj
+
+    def local_mode(self):
+        return self._obj.assign(path=self._obj["local_path"])
+
+    def remote_mode(self):
+        return self._obj.assign(path=self._obj["remote_path"])
+
+
+class SessionSeriesAccessor:
+
+    def __init__(self, pandas_obj) -> None:
+        self._obj: pd.Series = pandas_obj
+
+    def local_mode(self):
+        series = self._obj.copy()
+        series["path"] = series["local_path"]
+        return series
+
+    def remote_mode(self):
+        series = self._obj.copy()
+        series["path"] = series["remote_path"]
+        return series
 
 
 class FilesSeriesAccessor:

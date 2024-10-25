@@ -68,26 +68,31 @@ class MultiSessionPlaceholder(pd.core.series.Series):
         *args,
         project="Adaptation",
         analysis_group="default",
-        data_path="",
+        remote_path="",
         data_repository=None,
+        mode="remote",
+        date="2000-01-01",
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         if data_repository is not None:
             if data_repository == "local":
-                data_path = one.params.get().LOCAL_ROOT
+                remote_path = one.params.get().LOCAL_ROOT
             else:
-                data_path = self._get_connector().alyx.rest("data-repository", "read", data_repository)["data_path"]
-        if data_path == "":
+                remote_path = self._get_connector().alyx.rest("data-repository", "read", data_repository)["data_path"]
+
+        if remote_path == "":
             raise ValueError(
                 "Data path cannot be empty string. Must either be obtained by supplying data_repository argument, "
                 "or data_path directly"
             )
 
-        data_path = os.path.normpath(data_path)
+        remote_path = os.path.normpath(remote_path)
 
         self["rel_path"] = os.path.join("multisession", analysis_group)
-        self["path"] = os.path.join(data_path, self["rel_path"])
+        self["local_path"] = os.path.join(os.path.normpath(one.params.get().LOCAL_ROOT), self["rel_path"])
+        self["remote_path"] = os.path.join(remote_path, self["rel_path"])
+        self["path"] = self["remote_path"] if mode == "remote" else self["local_path"]
         self["alias"] = analysis_group
         self["u_alias"] = analysis_group
         self["projects"] = [project]

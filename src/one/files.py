@@ -226,7 +226,14 @@ class FileTransferManager:
         transfers_infos = []
         for (source, destination), transfers in self.results.groupby(["source_volume", "destination_volume"]):
             free_space = shutil.disk_usage(destination).free * Quantity("bytes")
-            transfer_space = transfers["source_filesize"].sum()
+
+            transfered_files = transfers[transfers["decision"] == "transfer"]
+            overwritten_files = transfers[transfers["decision"] == "overwrite"]
+
+            transfer_space = (
+                overwritten_files["destination_filesize"] - overwritten_files["source_filesize"]
+            ).sum() + transfered_files["source_filesize"].sum()
+
             session_nb = len(transfers.session.unique())
             files_nb = len(transfers)
 
@@ -431,6 +438,8 @@ class FileTransferManager:
                             destination_creation_date = destination_stat.st_birthtime
                             destination_modification_date = destination_stat.st_mtime
 
+                            destination_filesize = destination_stat.st_size * Quantity("bytes")
+
                             destination_date = max(destination_creation_date, destination_modification_date)
 
                             if (difference := abs(source_date - destination_date)) < policies["close_dates_threshold"]:
@@ -457,11 +466,13 @@ class FileTransferManager:
                             decision = policies["no_file_exists"]
                             warnings = "File is not existing on the destination, transfering is absolutely okay."
                             destination_date = None
+                            destination_filesize = 0 * Quantity("bytes")
 
                         record = dict(
                             source_filepath=source_filepath,
                             destination_filepath=destination_filepath,
                             source_filesize=source_filesize,
+                            destination_filesize=destination_filesize,
                             relative_filepath=relative_filepath,
                             destination_exists=destination_exists,
                             source_date=source_date,
