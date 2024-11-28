@@ -59,6 +59,9 @@ from iblutil.io.params import set_hidden
 from one.util import ensure_list
 import concurrent.futures
 
+import yaml
+from openapi3 import OpenAPI
+
 from types import MethodType
 
 _logger = logging.getLogger(__name__)
@@ -595,8 +598,10 @@ class AlyxClient:
         """dict: The REST endpoints and their parameters"""
         # Delayed fetch of rest schemes speeds up instantiation
         if not self._rest_schemes:
-            self._rest_schemes = self.get("/docs", expires=timedelta(weeks=1))
-            _logger.debug(f"Rest schemes : {self._rest_schemes}")
+            # self._rest_schemes = self.get("/api/schema", expires=timedelta(weeks=1)).get("paths")
+            # _logger.debug(f"Rest schemes : {self._rest_schemes}")
+            self._rest_schemes = self.get_openapi3_scheme()
+            print(self._rest_schemes)
         return self._rest_schemes
 
     @property
@@ -625,10 +630,17 @@ class AlyxClient:
             List of REST endpoint strings
         """
         EXCLUDE = ("_type", "_meta", "", "auth-token")
-        return sorted(x for x in self.rest_schemes.keys() if x not in EXCLUDE)
+        return sorted(path for path in self.rest_schemes.paths.keys() if path not in EXCLUDE)
+
+    def endpoint_exists(self, path: str):
+        try:
+            self.rest_schemes.resolve_path(path)
+            return True
+        except ValueError:
+            return False
 
     @_cache_response
-    def _generic_request(self, reqfunction, rest_query, data=None, files=None):
+    def _generic_request(self, reqfunction, rest_query: str, data=None, files=None):
         if not self._token and (not self._headers or "Authorization" not in self._headers):
             self.authenticate(username=self.user)
         # makes sure the base url is the one from the instance
@@ -1182,16 +1194,8 @@ class AlyxClient:
         # and split to the next slash or question mark
         endpoint = re.findall("^/*[^?/]*", url)[0].replace("/", "")
         # make sure the queried endpoint exists, if not throw an informative error
-        if endpoint not in self.rest_schemes.keys():
-            av = [k for k in self.rest_schemes.keys() if not k.startswith("_") and k]
-            raise ValueError(
-                'REST endpoint "'
-                + endpoint
-                + '" does not exist. Available '
-                + "endpoints are \n       "
-                + "\n       ".join(av)
-            )
-        endpoint_scheme = self.rest_schemes[endpoint]
+        self._check_inputs(endpoint)
+        endpoint_scheme = self.rest_schemes.resolve_path(endpoint)
         # on a filter request, override the default action parameter
         if "?" in url:
             action = "list"
@@ -1199,8 +1203,9 @@ class AlyxClient:
         if not action:
             pprint(list(endpoint_scheme.keys()))
             return
+
         # make sure the the desired action exists, if not throw an informative error
-        if action not in endpoint_scheme:
+        if action not in endpoint_scheme.operations.keys():
             raise ValueError(
                 'Action "'
                 + action
@@ -1209,11 +1214,13 @@ class AlyxClient:
                 + '" does '
                 + "not exist. Available actions are: "
                 + "\n       "
-                + "\n       ".join(endpoint_scheme.keys())
+                + "\n       ".join(endpoint_scheme.operations.keys())
             )
         # the actions below require an id in the URL, warn and help the user
         if action in ["read", "update", "partial_update", "delete"] and not id:
-            _logger.warning('REST action "' + action + '" requires an ID in the URL: ' + endpoint_scheme[action]["url"])
+            _logger.warning(
+                'REST action "' + action + '" requires an ID in the URL: ' + endpoint_scheme.operations[action]["url"]
+            )
             return
         # the actions below require a data dictionary, warn and help the user with fields list
         if action in ["create", "update", "partial_update"] and not data:
@@ -1324,8 +1331,8 @@ class AlyxClient:
     # JSON field interface convenience methods
     def _check_inputs(self, endpoint: str) -> None:
         # make sure the queried endpoint exists, if not throw an informative error
-        if endpoint not in self.rest_schemes.keys():
-            av = [k for k in self.rest_schemes.keys() if not k.startswith("_") and k]
+        if not self.endpoint_exists(endpoint):
+            av = self.list_endpoints()
             raise ValueError(
                 'REST endpoint "'
                 + endpoint
@@ -1333,7 +1340,6 @@ class AlyxClient:
                 + "endpoints are \n       "
                 + "\n       ".join(av)
             )
-        return
 
     def json_field_write(
         self,
@@ -1476,3 +1482,240 @@ class AlyxClient:
         """Clear all REST response cache files for the base url"""
         for file in self.cache_dir.joinpath(".rest").glob("*"):
             file.unlink()
+
+    def get_openapi3_scheme(self):
+
+        scheme_url = "/api/schema"
+
+        if not self._token and (not self._headers or "Authorization" not in self._headers):
+            self.authenticate(username=self.user)
+        headers = self._headers.copy()
+        response = requests.get(
+            self.base_url + scheme_url,
+            stream=True,
+            headers=headers,
+            data=None,
+            files=None,
+        )
+        response.raise_for_status()
+        yaml_data = yaml.safe_load(response.text)
+        openapi_spec = OpenAPI(yaml_data)
+
+        print(openapi_spec.components)
+
+        return openapi_spec
+
+
+from urllib.parse import urlparse, urlunparse
+from openapi_parser import parse as parse_openapi_schema
+from openapi_parser.specification import Operation
+import requests
+import re
+from typing import List, Tuple
+
+
+class Path(str):
+
+    client: "Client"
+    requirements: List[str]
+
+    def __new__(cls, path: str, client: "Client"):
+        path = cls.normalize_path(path)
+        obj = super(Path, cls).__new__(cls, path)
+        setattr(obj, "client", client)
+        setattr(obj, "requirements", cls.parse_requirements(path))
+        return obj
+
+    @staticmethod
+    def parse_requirements(path):
+        pattern = re.compile(r"{(\w+)}")
+        matches = pattern.findall(path)
+        return matches
+
+    @staticmethod
+    def normalize_path(path):
+        if not path.startswith("/"):
+            path = "/" + path
+
+        # Ensure the path does not end with a '/'
+        if path.endswith("/"):
+            path = path[:-1]
+
+        return path
+
+    def make_url(self, fragment="", **kwargs):
+        """_summary_
+
+        Args:
+            params (str, optional): Query parameters. Defaults to "".
+            query (str, optional): Query string , separated from the rest of the url by an ?
+                (? wich you should not provide here). Defaults to "".
+            fragment (str, optional): Section, separated from the rest of the url by an #
+                (# wich you should not provide here) also called anchor. Defaults to "".
+
+        Returns:
+            _type_: _description_
+        """
+        query_dict, requirements_dict = self.separate_query_and_requirements(**kwargs)
+        url = urlunparse(
+            (
+                self.client.scheme,
+                self.client.netloc,
+                self.finalized_path(**requirements_dict),
+                "",
+                self.make_query_string(query_dict),
+                fragment,
+            )
+        )
+        return url
+
+    def finalized_path(self, **requirements_dict):
+        path = str(self)
+        for requirement in self.requirements:
+            if (requirement_value := requirements_dict.get(requirement)) is None:
+                raise ValueError(f"You must provide a {requirement} argument with the path {self}")
+            path = path.replace(f"{{{requirement}}}", str(requirement_value))
+        return path
+
+    def separate_query_and_requirements(self, **kwargs) -> Tuple[dict, dict]:
+        requirements = {k: v for k, v in kwargs.items() if k in self.requirements}
+        query_dict = {k: v for k, v in kwargs.items() if k not in self.requirements}
+        return query_dict, requirements
+
+    def make_query_string(self, query_dict: dict) -> str:
+        query_list = []
+        for key, value in query_dict.items():
+            query_list.append(f"{key}={value}")
+        return "&".join(query_list)
+
+    @property
+    def endpoint(self):
+        return Endpoint(self, self.client)
+
+
+class Client:
+
+    scheme_endpoint = "/api/schema"
+
+    def __init__(self, base_url: str):
+
+        original_input = base_url
+        if not base_url.startswith(("http:", "https:")):
+            scheme_and_netloc = base_url.split("//")
+            if len(scheme_and_netloc) == 1:
+                base_url = "http://" + scheme_and_netloc[0]
+            else:
+                base_url = "http://" + scheme_and_netloc[1]
+            print(f"corrected invalid url {original_input} into {base_url} asuming http protocol")
+
+        parsed_url = urlparse(base_url)
+        self.scheme = parsed_url.scheme
+        netloc_and_port = parsed_url.netloc.split(":")
+        if len(netloc_and_port) == 2:
+            self.port = netloc_and_port[1]
+            self.url = netloc_and_port[0]
+        else:
+            self.port = "80"
+            self.url = netloc_and_port[0]
+            print(
+                f"corrected url {original_input} missing port info into url " f"{self.base_url} asuming http protocol"
+            )
+
+        if self.url == "":
+            raise ValueError(f"Cound not parse the url {original_input}. Verify it is correct")
+
+        self._schema = None
+
+    @property
+    def base_url(self):
+        return urlunparse((self.scheme, self.netloc, "", "", "", ""))
+
+    @property
+    def netloc(self):
+        return f"{self.url}:{self.port}"
+
+    @property
+    def schema(self):
+        if self._schema:
+            return self._schema
+        self._schema = self.get_schema()
+        return self._schema
+
+    def get_schema(self):
+        schema = parse_openapi_schema(self.base_url + self.scheme_endpoint)
+        schema.paths_dict = {path.url: path for path in schema.paths}
+        return schema
+
+    def list_endpoints(self):
+        return sorted(self.schema.paths_dict.keys())
+
+    def path(self, path):
+        return Path(path, self)
+
+    def get_headers(self):
+        return None
+
+    def rest(self, endpoint_name: str, action: str, **kwargs):
+        endpoint = self.path(endpoint_name).endpoint.assert_exists()
+        return endpoint.actions[action].request(**kwargs)
+
+    def describe(self, endpoint_name: str):
+        endpoint = self.path(endpoint_name).endpoint.assert_exists()
+        return endpoint
+
+
+class Endpoint:
+
+    def __init__(self, path: Path, client: Client):
+
+        self.path = path
+        self.client = client
+
+    def exists(self):
+        return True if self.routes else False
+
+    @property
+    def routes(self):
+        search_path = self.path.replace("/", r"\/")
+        pattern = re.compile(rf"^{search_path}(?:(?=\/{{).*)?$")
+        return [Path(key, self.client) for key in self.client.schema.paths_dict.keys() if pattern.match(key)]
+
+    @property
+    def actions(self):
+        return {
+            operation.operation_id.split("_")[-1]: Operateur(route, self.client, operation)
+            for route in self.routes
+            for operation in self.client.schema.paths_dict[route].operations
+        }
+
+    def assert_exists(self):
+        if not self.exists():
+            self.raise_not_existing()
+        return self
+
+    def raise_not_existing(self):
+        raise ValueError(f"Endpoint {self.path} do not exist in the schema")
+
+
+class Operateur:
+
+    def __init__(self, path: Path, client: Client, operation: Operation):
+        self.path = path
+        self.client = client
+        self.operation = operation
+
+    def request(self, data=None, files=None, **kwargs):
+        request_method = getattr(requests, self.operation.method.value)
+        url = self.path.make_url(**kwargs)
+        print(url)
+        return request_method(url, stream=True, headers=self.client.get_headers(), data=data, files=files)
+
+    def __repr__(self):
+        return f"{self.path} - {self.operation}"
+
+    def describe(self):
+        return self.client.schema.paths_dict[self.path]
+
+
+c = Client("127.0.0.1")
+c.schema
