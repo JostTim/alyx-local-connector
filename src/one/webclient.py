@@ -35,11 +35,11 @@ import math
 import os
 import re
 import functools
+import requests
 import urllib.request
 from urllib.error import HTTPError
 import urllib.parse
 from collections.abc import Mapping
-from typing import Optional
 from datetime import datetime, timedelta
 from pathlib import Path
 import warnings
@@ -49,19 +49,20 @@ import tempfile
 from getpass import getpass
 from contextlib import contextmanager
 
-import requests
 from tqdm import tqdm
 
 from pprint import pprint
-import one.params
 from iblutil.io import hashfile
 from iblutil.io.params import set_hidden
 from one.util import ensure_list
+import one.params
 import concurrent.futures
 
-import yaml
-from openapi3 import OpenAPI
+from urllib.parse import urlparse, urlunparse
+from openapi_parser import parse as parse_openapi_schema
+from openapi_parser.specification import Operation, Specification, Path as OpenAPIPath
 
+from typing import List, Tuple, Dict, Optional
 from types import MethodType
 
 _logger = logging.getLogger(__name__)
@@ -1506,22 +1507,21 @@ class AlyxClient:
         return openapi_spec
 
 
-from urllib.parse import urlparse, urlunparse
-from openapi_parser import parse as parse_openapi_schema
-from openapi_parser.specification import Operation
-import requests
-import re
-from typing import List, Tuple
+class OpenAPISpecification(Specification):
+
+    @property
+    def paths_dict(self) -> Dict[str, OpenAPIPath]:
+        return {path.url: path for path in self.paths}
 
 
-class Path(str):
+class UrlPath(str):
 
     client: "Client"
     requirements: List[str]
 
     def __new__(cls, path: str, client: "Client"):
         path = cls.normalize_path(path)
-        obj = super(Path, cls).__new__(cls, path)
+        obj = super(UrlPath, cls).__new__(cls, path)
         setattr(obj, "client", client)
         setattr(obj, "requirements", cls.parse_requirements(path))
         return obj
@@ -1635,22 +1635,22 @@ class Client:
         return f"{self.url}:{self.port}"
 
     @property
-    def schema(self):
+    def schema(self) -> OpenAPISpecification:
         if self._schema:
             return self._schema
         self._schema = self.get_schema()
         return self._schema
 
-    def get_schema(self):
+    def get_schema(self) -> OpenAPISpecification:
         schema = parse_openapi_schema(self.base_url + self.scheme_endpoint)
-        schema.paths_dict = {path.url: path for path in schema.paths}
-        return schema
+        schema.paths_dict = {path.url: path for path in schema.paths}  # type: ignore
+        return schema  # type: ignore
 
     def list_endpoints(self):
         return sorted(self.schema.paths_dict.keys())
 
     def path(self, path):
-        return Path(path, self)
+        return UrlPath(path, self)
 
     def get_headers(self):
         return None
@@ -1666,7 +1666,7 @@ class Client:
 
 class Endpoint:
 
-    def __init__(self, path: Path, client: Client):
+    def __init__(self, path: UrlPath, client: Client):
 
         self.path = path
         self.client = client
@@ -1678,7 +1678,7 @@ class Endpoint:
     def routes(self):
         search_path = self.path.replace("/", r"\/")
         pattern = re.compile(rf"^{search_path}(?:(?=\/{{).*)?$")
-        return [Path(key, self.client) for key in self.client.schema.paths_dict.keys() if pattern.match(key)]
+        return [UrlPath(key, self.client) for key in self.client.schema.paths_dict.keys() if pattern.match(key)]
 
     @property
     def actions(self):
@@ -1699,7 +1699,7 @@ class Endpoint:
 
 class Operateur:
 
-    def __init__(self, path: Path, client: Client, operation: Operation):
+    def __init__(self, path: UrlPath, client: Client, operation: Operation):
         self.path = path
         self.client = client
         self.operation = operation
@@ -1707,7 +1707,6 @@ class Operateur:
     def request(self, data=None, files=None, **kwargs):
         request_method = getattr(requests, self.operation.method.value)
         url = self.path.make_url(**kwargs)
-        print(url)
         return request_method(url, stream=True, headers=self.client.get_headers(), data=data, files=files)
 
     def __repr__(self):
@@ -1717,5 +1716,54 @@ class Operateur:
         return self.client.schema.paths_dict[self.path]
 
 
-c = Client("127.0.0.1")
-c.schema
+class AlyoClient(Client):
+
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        username=None,
+        password=None,
+        cache_dir=None,
+        silent=False,
+        cache_rest="GET",
+    ):
+
+        self.silent = silent
+        self.params = one.params.get(client=base_url, silent=self.silent, username=username)
+
+        base_url = base_url or self.params.ALYX_URL
+        if base_url is None:
+            raise ValueError("base_url was None after resolution")
+
+        super().__init__(base_url)
+
+        self.params = self.params.set("CACHE_DIR", cache_dir or self.params.CACHE_DIR)
+
+        if username or password:
+            self.authenticate(username, password)
+
+        self._headers = {**(self._headers or {}), "Accept": "application/json"}
+        # REST cache parameters
+        # The default length of time that cache file is valid for,
+        # The default expiry is overridden by the `expires` kwarg.  If False, the caching is
+        # turned off.
+        self.default_expiry = timedelta(days=1)
+        self.cache_mode = cache_rest
+        self._obj_id = id(self)
+
+    @property
+    def cache_dir(self):
+        """pathlib.Path: The location of the downloaded file cache"""
+        return Path(self.params.CACHE_DIR)
+
+    def delete_cache(self):
+        """Delete all cached files in the .rest directory of your ONE installation "
+        "(usually located in ONE inside downloads)"""
+        cache_dir = self.cache_dir.joinpath(".rest")
+        for item in os.listdir(cache_dir):
+            os.remove(os.path.join(cache_dir, item))
+
+    @property
+    def is_logged_in(self):
+        """bool: Check if user logged into Alyx database; True if user is authenticated"""
+        return self._token and self.user and self._headers and "Authorization" in self._headers
