@@ -26,16 +26,16 @@ from iblutil.io import parquet, hashfile
 from iblutil.util import Bunch, flatten
 from tqdm import tqdm
 from sys import stdout
-import one.params
-from one.webclient import HTTPError, AlyxClient
-import one.alf.io as alfio
-import one.alf.exceptions as alferr
+import alyx_connector.params
+from alyx_connector.webclient import HTTPError, AlyxClient
+import alyx_connector.alf.io as alfio
+import alyx_connector.alf.exceptions as alferr
 from .alf.cache import make_parquet_db
 from .alf.files import rel_path_parts, get_session_path, get_alf_path, add_uuid_string
 from .alf.spec import is_uuid_string
 from .registration import RegistrationClient
-from one.converters import ConversionMixin
-import one.util as util
+from alyx_connector.converters import ConversionMixin
+import alyx_connector.util as util
 
 from .files import FileTransferManager
 
@@ -61,7 +61,7 @@ def singleton(cls):
 class MultiSessionPlaceholder(pd.core.series.Series):
     @staticmethod
     def _get_connector():
-        return one.ONE()
+        return alyx_connector.ONE()
 
     def __init__(
         self,
@@ -77,7 +77,7 @@ class MultiSessionPlaceholder(pd.core.series.Series):
         super().__init__(*args, **kwargs)
         if data_repository is not None:
             if data_repository == "local":
-                remote_path = one.params.get().LOCAL_ROOT
+                remote_path = alyx_connector.params.get().LOCAL_ROOT
             else:
                 remote_path = self._get_connector().alyx.rest("data-repository", "read", data_repository)["data_path"]
 
@@ -90,7 +90,7 @@ class MultiSessionPlaceholder(pd.core.series.Series):
         remote_path = os.path.normpath(remote_path)
 
         self["rel_path"] = os.path.join("multisession", analysis_group)
-        self["local_path"] = os.path.join(os.path.normpath(one.params.get().LOCAL_ROOT), self["rel_path"])
+        self["local_path"] = os.path.join(os.path.normpath(alyx_connector.params.get().LOCAL_ROOT), self["rel_path"])
         self["remote_path"] = os.path.join(remote_path, self["rel_path"])
         self["path"] = self["remote_path"] if mode == "remote" else self["local_path"]
         self["alias"] = analysis_group
@@ -147,7 +147,7 @@ class One(ConversionMixin):
         # get parameters override if inputs provided
         super().__init__()
         if not getattr(self, "cache_dir", None):  # May already be set by subclass
-            self.cache_dir = cache_dir or one.params.get_cache_dir()
+            self.cache_dir = cache_dir or alyx_connector.params.get_cache_dir()
         self.cache_expiry = timedelta(hours=24)
         self.mode = mode
         self.wildcards = wildcards  # Flag indicating whether to use regex or wildcards
@@ -1020,7 +1020,7 @@ class One(ConversionMixin):
 
 
 @lru_cache(maxsize=1)
-def ONE(*, mode="auto", data_access_mode="remote", wildcards=True, **kwargs):
+def connect(*, mode="auto", data_access_mode="remote", wildcards=True, **kwargs):
     """ONE API factory
     Determine which class to instantiate depending on parameters passed.
 
@@ -1068,7 +1068,7 @@ def ONE(*, mode="auto", data_access_mode="remote", wildcards=True, **kwargs):
     print("ENFOIRAX")
     # If cache dir was provided and corresponds to one configured with an Alyx client, use OneAlyx
     try:
-        one.params.check_cache_conflict(kwargs.get("cache_dir"))
+        alyx_connector.params.check_cache_conflict(kwargs.get("cache_dir"))
         return One(mode="local", wildcards=wildcards, **kwargs)
     except AssertionError:
         # Cache dir corresponds to a Alyx repo, call OneAlyx
@@ -1192,7 +1192,7 @@ class OneAlyx(One):
 
             # Check version compatibility
             min_version = packaging.version.parse(cache_info.get("min_api_version", "0.0.0"))
-            if packaging.version.parse(one.__version__) < min_version:
+            if packaging.version.parse(alyx_connector.__version__) < min_version:
                 warnings.warn(f"Newer cache tables require ONE version {min_version} or greater")
                 return
 
@@ -1408,7 +1408,7 @@ class OneAlyx(One):
             dataset["dataset#"] = dataset.pop("id")
             dataset["dataset_url"] = dataset.pop("url")
             dataset["dataset_admin_url"] = dataset.pop("admin_url")
-            dataset["local_root"] = one.params.get().LOCAL_ROOT
+            dataset["local_root"] = alyx_connector.params.get().LOCAL_ROOT
             for file in files:
                 # file["file_url"] = file.pop("url")
                 # file["file_admin_url"] = file.pop("admin_url")
@@ -1661,7 +1661,7 @@ class OneAlyx(One):
         session_dict["date"] = str(datetime.fromisoformat(session_dict["start_time"]).date())
         session_dict["extended_qc"] = session_dict["extended_qc"] if session_dict["extended_qc"] is not None else {}
         session_dict["local_path"] = os.path.normpath(
-            os.path.join(one.params.get().LOCAL_ROOT, session_dict["rel_path"])
+            os.path.join(alyx_connector.params.get().LOCAL_ROOT, session_dict["rel_path"])
         )
         session_dict["remote_path"] = os.path.normpath(
             session_dict["path"]
@@ -1937,9 +1937,9 @@ class OneAlyx(One):
         OneAlyx
             An instance of OneAlyx for the newly set up database URL
         """
-        base_url = base_url or one.params.get_default_client()
-        cache_map = one.params.setup(client=base_url, **kwargs)
-        return OneAlyx(base_url=base_url or one.params.get(cache_map.DEFAULT).ALYX_URL)
+        base_url = base_url or alyx_connector.params.get_default_client()
+        cache_map = alyx_connector.params.setup(client=base_url, **kwargs)
+        return OneAlyx(base_url=base_url or alyx_connector.params.get(cache_map.DEFAULT).ALYX_URL)
 
     @util.refresh
     @util.parse_id

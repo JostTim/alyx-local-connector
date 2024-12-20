@@ -3,6 +3,8 @@ docs/_autosummary
 __pycache__
 *.*~
 *.pyc
+.venv*
+.pdm-build*
 python/scratch
 .idea/*
 .vscode/

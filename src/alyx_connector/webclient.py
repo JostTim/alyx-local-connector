@@ -54,8 +54,8 @@ from tqdm import tqdm
 from pprint import pprint
 from iblutil.io import hashfile
 from iblutil.io.params import set_hidden
-from one.util import ensure_list
-import one.params
+from alyx_connector.util import ensure_list
+import alyx_connector.params
 import concurrent.futures
 
 from urllib.parse import urlparse, urlunparse
@@ -574,7 +574,7 @@ class AlyxClient:
             If true, auth token is cached
         """
         self.silent = silent
-        self._par = one.params.get(client=base_url, silent=self.silent, username=username)
+        self._par = alyx_connector.params.get(client=base_url, silent=self.silent, username=username)
 
         self.base_url = base_url or self._par.ALYX_URL
         if self.base_url is None:
@@ -755,10 +755,10 @@ class AlyxClient:
         }
         if cache_token:
             # Update saved pars
-            par = one.params.get(client=self.base_url, silent=True)
+            par = alyx_connector.params.get(client=self.base_url, silent=True)
             tokens = getattr(par, "TOKEN", {})
             tokens[username] = self._token
-            one.params.save(par.set("TOKEN", tokens), self.base_url)
+            alyx_connector.params.save(par.set("TOKEN", tokens), self.base_url)
             # Update current pars
             self._par = self._par.set("TOKEN", tokens)
         self.user = username
@@ -771,12 +771,12 @@ class AlyxClient:
         """
         if not self.is_logged_in:
             return
-        par = one.params.get(client=self.base_url, silent=True)
+        par = alyx_connector.params.get(client=self.base_url, silent=True)
         username = self.user
         # Remove token from cache
         if getattr(par, "TOKEN", False) and username in par.TOKEN:
             del par.TOKEN[username]
-            one.params.save(par, self.base_url)
+            alyx_connector.params.save(par, self.base_url)
         # Remove token from local pars
         if getattr(self._par, "TOKEN", False) and username in self._par.TOKEN:
             del self._par.TOKEN[username]
@@ -1559,12 +1559,11 @@ class UrlPath(str):
         query_dict, requirements_dict = self.separate_query_and_requirements(**kwargs)
         url = urlunparse(
             (
-                self.client.scheme,
-                self.client.netloc,
-                self.finalized_path(**requirements_dict),
-                "",
-                self.make_query_string(query_dict),
-                fragment,
+                self.client.protocol,  # http or https
+                self.client.netloc,  # netloc = host+port
+                self.finalized_path(**requirements_dict),  # path
+                self.make_query_string(query_dict),  # querystring example : ?thing=truc
+                fragment,  # basically an anchor, fragment example : #title1
             )
         )
         return url
@@ -1578,6 +1577,12 @@ class UrlPath(str):
         return path
 
     def separate_query_and_requirements(self, **kwargs) -> Tuple[dict, dict]:
+        """Separates the query parameters (key values) and the requirements (parts of the url that are needed)
+        from an unpacked dictionnary as input.
+
+        Returns:
+            Tuple[dict, dict]: dictionnary of query arguments, dictionnary of path required elements
+        """
         requirements = {k: v for k, v in kwargs.items() if k in self.requirements}
         query_dict = {k: v for k, v in kwargs.items() if k not in self.requirements}
         return query_dict, requirements
@@ -1594,45 +1599,83 @@ class UrlPath(str):
 
 
 class Client:
+    """
+    Client class for managing connections.
+
+    Attributes:
+        protocol (str): Protocol used by the client, e.g., 'http' or 'https'.
+        host (str): Host address, e.g., '127.0.0.1'.
+        port (str): Port number, e.g., '80'.
+        scheme_endpoint (str): Endpoint for the API schema.
+        default_port (str): Default port if none is specified.
+    """
+
+    protocol: str
+    host: str
+    port: str
 
     scheme_endpoint = "/api/schema"
+    default_port = "80"
 
-    def __init__(self, base_url: str):
+    def __init__(self, url: str, username=str, silent=True):
 
-        original_input = base_url
-        if not base_url.startswith(("http:", "https:")):
-            scheme_and_netloc = base_url.split("//")
-            if len(scheme_and_netloc) == 1:
-                base_url = "http://" + scheme_and_netloc[0]
-            else:
-                base_url = "http://" + scheme_and_netloc[1]
-            print(f"corrected invalid url {original_input} into {base_url} asuming http protocol")
-
-        parsed_url = urlparse(base_url)
-        self.scheme = parsed_url.scheme
-        netloc_and_port = parsed_url.netloc.split(":")
-        if len(netloc_and_port) == 2:
-            self.port = netloc_and_port[1]
-            self.url = netloc_and_port[0]
-        else:
-            self.port = "80"
-            self.url = netloc_and_port[0]
-            print(
-                f"corrected url {original_input} missing port info into url " f"{self.base_url} asuming http protocol"
-            )
-
-        if self.url == "":
-            raise ValueError(f"Cound not parse the url {original_input}. Verify it is correct")
+        self.protocol, self.host, self.port = self._validate_url(url)
+        self.username = username
+        self.silent = silent
 
         self._schema = None
+        self._par = None
+        self._headers = None
 
-    @property
-    def base_url(self):
-        return urlunparse((self.scheme, self.netloc, "", "", "", ""))
+    def _validate_url(self, input_url: str):
+
+        if not input_url.startswith(("http:", "https:")):
+            scheme_and_netloc = input_url.split("//")
+            if len(scheme_and_netloc) == 1:
+                url = "http://" + scheme_and_netloc[0]
+            else:
+                url = "http://" + scheme_and_netloc[1]
+            print(f"corrected invalid url {input_url} into {url} asuming http protocol")
+
+        parsed_url = urlparse(url)
+        protocol = parsed_url.scheme
+        host_and_port = parsed_url.netloc.split(":")
+        if len(host_and_port) == 2:
+            port = host_and_port[1]
+            host = host_and_port[0]
+        else:
+            port = "80"
+            host = host_and_port[0]
+            print(f"corrected url {input_url} missing port info into port 80 asuming http protocol is used")
+
+        if self.url == "":
+            raise ValueError(f"Cound not parse the url {input_url}. Verify it is correct")
+
+        return protocol, host, port
 
     @property
     def netloc(self):
-        return f"{self.url}:{self.port}"
+        "example : 127.0.0.1:80"
+        return f"{self.host}:{self.port}"
+
+    @property
+    def url(self):
+        "example : http://127.0.0.1:80"
+        return urlunparse((self.protocol, self.netloc, "", "", "", ""))
+
+    base_url = url
+
+    @property
+    def params(self):
+        if self._par is None:
+            self._par = alyx_connector.params.get(client=self.base_url, silent=self.silent, username=self.username)
+        return self._par
+
+    @property
+    def headers(self):
+        if self._headers is None:
+            self._headers = {**{}, "Accept": "application/json"}
+        return self._headers
 
     @property
     def schema(self) -> OpenAPISpecification:
@@ -1729,7 +1772,7 @@ class AlyoClient(Client):
     ):
 
         self.silent = silent
-        self.params = one.params.get(client=base_url, silent=self.silent, username=username)
+        self.params = alyx_connector.params.get(client=base_url, silent=self.silent, username=username)
 
         base_url = base_url or self.params.ALYX_URL
         if base_url is None:
@@ -1767,3 +1810,79 @@ class AlyoClient(Client):
     def is_logged_in(self):
         """bool: Check if user logged into Alyx database; True if user is authenticated"""
         return self._token and self.user and self._headers and "Authorization" in self._headers
+
+    def authenticate(self, username=None, password=None, cache_token=True, force=False):
+        """
+        Gets a security token from the Alyx REST API to create requests headers.
+        Credentials are loaded via one.params
+
+        Parameters
+        ----------
+        username : str
+            Alyx username.  If None, token not cached and not silent, user is prompted.
+        password : str
+            Alyx password.  If None, token not cached and not silent, user is prompted.
+        cache_token : bool
+            If true, the token is cached for subsequent auto-logins
+        force : bool
+            If true, any cached token is ignored
+        """
+        # Get username
+        if username is None:
+            username = getattr(self._par, "ALYX_LOGIN", self.user)
+        if username is None and not self.silent:
+            username = input("Enter Alyx username:")
+
+        # Check if token cached
+        if not force and getattr(self._par, "TOKEN", False) and username in self._par.TOKEN:
+            self._token = self._par.TOKEN[username]
+            self._headers = {
+                "Authorization": f"Token {list(self._token.values())[0]}",
+                "Accept": "application/json",
+            }
+            self.user = username
+            return
+
+        # Get password
+        if password is None:
+            password = getattr(self._par, "ALYX_PWD", None)
+        if password is None and not self.silent:
+            password = getpass(f'Enter Alyx password for "{username}":')
+
+        try:
+            credentials = {"username": username, "password": password}
+            rep = requests.post(self.base_url + "/auth-token", data=credentials)
+        except requests.exceptions.ConnectionError:
+            raise ConnectionError(
+                f"Can't connect to {self.base_url}.\n" + "Check your internet connections and Alyx database firewall"
+            )
+        # Assign token or raise exception on auth error
+        if rep.ok:
+            self._token = rep.json()
+            assert list(self._token.keys()) == ["token"]
+        else:
+            if rep.status_code == 400:  # Auth error; re-raise with details
+                redacted = "*" * len(credentials["password"]) if credentials["password"] else None
+                message = (
+                    "Alyx authentication failed with credentials: "
+                    f"user = {credentials['username']}, password = {redacted}"
+                )
+                raise requests.HTTPError(rep.status_code, rep.url, message, response=rep)
+            else:
+                rep.raise_for_status()
+
+        self._headers = {
+            "Authorization": "Token {}".format(list(self._token.values())[0]),
+            "Accept": "application/json",
+        }
+        if cache_token:
+            # Update saved pars
+            par = alyx_connector.params.get(client=self.base_url, silent=True)
+            tokens = getattr(par, "TOKEN", {})
+            tokens[username] = self._token
+            alyx_connector.params.save(par.set("TOKEN", tokens), self.base_url)
+            # Update current pars
+            self._par = self._par.set("TOKEN", tokens)
+        self.user = username
+        if not self.silent:
+            print(f"Connected to {self.base_url} as {self.user}")

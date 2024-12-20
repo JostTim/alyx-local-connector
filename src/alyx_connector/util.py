@@ -1,4 +1,5 @@
 """Decorators and small standalone functions for api module"""
+
 import logging
 import urllib.parse
 from functools import wraps
@@ -12,10 +13,10 @@ from iblutil.io import parquet
 import numpy as np
 from packaging import version
 
-import one.alf.exceptions as alferr
-from one.alf.files import rel_path_parts, get_session_path, get_alf_path
-from one.alf.spec import FILE_SPEC, regex as alf_regex
-import one.alf.io as alfio
+import alyx_connector.alf.exceptions as alferr
+from alyx_connector.alf.files import rel_path_parts, get_session_path, get_alf_path
+from alyx_connector.alf.spec import FILE_SPEC, regex as alf_regex
+import alyx_connector.alf.io as alfio
 import re
 
 logger = logging.getLogger(__name__)
@@ -70,9 +71,7 @@ def ses2records(ses: dict, int_id=False):
             rec["id"] = d["id"]
             rec["eid"] = session.name
         try:
-            file_path = urllib.parse.urlsplit(
-                d["data_url"], allow_fragments=False
-            ).path.strip("/")
+            file_path = urllib.parse.urlsplit(d["data_url"], allow_fragments=False).path.strip("/")
             file_path = alfio.remove_uuid_file(file_path, dry=True).as_posix()
             rec["session_path"] = get_session_path(file_path).as_posix()
             rec["rel_path"] = file_path[len(rec["session_path"]) :].strip("/")
@@ -125,9 +124,7 @@ def datasets2records(datasets, int_id=False) -> pd.DataFrame:
         rec = dict(file_size=d["file_size"], hash=d["hash"], exists=True)
         if int_id:
             rec["id_0"], rec["id_1"] = parquet.str2np(d["url"][-36:]).flatten().tolist()
-            rec["eid_0"], rec["eid_1"] = (
-                parquet.str2np(d["session"][-36:]).flatten().tolist()
-            )
+            rec["eid_0"], rec["eid_1"] = parquet.str2np(d["session"][-36:]).flatten().tolist()
         else:
             rec["id"] = d["url"][-36:]
             rec["eid"] = d["session"][-36:]
@@ -280,9 +277,7 @@ def _collection_spec(collection=None, revision=None) -> str:
         A string format for matching the collection/revision
     """
     spec = ""
-    for value, default in zip(
-        (collection, revision), ("{collection}/", "#{revision}#/")
-    ):
+    for value, default in zip((collection, revision), ("{collection}/", "#{revision}#/")):
         if not value:
             default = f"({default})?" if value is None else ""
         spec += default
@@ -409,10 +404,7 @@ def filter_datasets(
         regex_args.update(**filename)
     else:
         # Convert to regex is necessary and assert end of string
-        filename = [
-            fnmatch.translate(x) if wildcards else x + "$"
-            for x in ensure_list(filename)
-        ]
+        filename = [fnmatch.translate(x) if wildcards else x + "$" for x in ensure_list(filename)]
         spec_str += "|".join(filename)
 
     # If matching revision name, add to regex string
@@ -495,9 +487,7 @@ def filter_revision_last_before(datasets, revision=None, assert_unique=True):
             if assert_unique:
                 raise alferr.ALFError(f"No default revision for dataset {dset_name}")
             else:
-                logger.warning(
-                    f"No default revision for dataset {dset_name}; using most recent"
-                )
+                logger.warning(f"No default revision for dataset {dset_name}; using most recent")
         # Compare revisions lexicographically
         if assert_unique and len(df["revision"].unique()) > 1:
             rev_list = '"' + '", "'.join(df["revision"].unique()) + '"'
@@ -563,11 +553,7 @@ def autocomplete(term, search_terms) -> str:
 
 def ensure_list(value):
     """Ensure input is a list"""
-    return (
-        [value]
-        if isinstance(value, (str, dict)) or not isinstance(value, Iterable)
-        else value
-    )
+    return [value] if isinstance(value, (str, dict)) or not isinstance(value, Iterable) else value
 
 
 class LazyId(Mapping):

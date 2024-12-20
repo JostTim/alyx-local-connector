@@ -1,5 +1,5 @@
 import pandas as pd, numpy as np
-from .api import ONE
+from .api import connect
 from .alf.spec import to_full_path
 from pathlib import Path
 
@@ -96,7 +96,7 @@ class DatasetsDataframeAcessor:
     def __init__(self, pandas_obj) -> None:
         self._validate(pandas_obj)
         self._obj = pandas_obj
-        self.connector = ONE()
+        self.connector = connect()
 
     @staticmethod
     def _validate(obj):
@@ -155,7 +155,7 @@ class DatasetsSeriesAcessor:
     def __init__(self, pandas_obj) -> None:
         self._validate(pandas_obj)
         self._obj = pandas_obj
-        self.connector = ONE()
+        self.connector = connect()
 
     def make_fullpath(self, mode="remote"):
         root_key = "remote_root" if mode == "remote" else "local_root"

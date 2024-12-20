@@ -7,6 +7,7 @@ There are multiple ways to uniquely identify an experiment:
     - ref (str) : An experiment reference string of the form `yyyy-mm-dd_n_subject`
     - url (str) : A remote http session path of the form `<lab>/Subjects/<subject>/<date>/<number>`
 """
+
 import re
 import functools
 import datetime
@@ -21,9 +22,9 @@ import pandas as pd
 from iblutil.io import parquet
 from iblutil.util import Bunch
 
-import one.alf.io as alfio
-from one.alf.spec import is_session_path, is_uuid_string
-from one.alf.files import get_session_path, add_uuid_string, session_path_parts
+import alyx_connector.alf.io as alfio
+from alyx_connector.alf.spec import is_session_path, is_uuid_string
+from alyx_connector.alf.files import get_session_path, add_uuid_string, session_path_parts
 from .util import Listable, ensure_list
 
 

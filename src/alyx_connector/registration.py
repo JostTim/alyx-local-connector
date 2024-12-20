@@ -53,9 +53,9 @@ class RegistrationClient:
     def __init__(self, one=None):
         self.one = one
         if not one:
-            from .api import ONE
+            from .api import connect
 
-            self.one = ONE(cache_rest=None)
+            self.one = connect(cache_rest=None)
         self.dtypes = self.one.alyx.rest("dataset-types", "list")
         self.registration_patterns = [dt["filename_pattern"] for dt in self.dtypes if dt["filename_pattern"]]
         self.file_extensions = [

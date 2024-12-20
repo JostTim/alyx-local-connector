@@ -17,12 +17,13 @@ TODO Currently record2url assumes all data are stored on a single HTTP data serv
 TODO Could have .one/.params file that stores ONE state, including whether files are distributed?
 TODO Release changes to alyx repo first
 """
+
 from abc import abstractmethod
 import logging
 
 from iblutil.io import params as iopar
 
-from one.params import _PAR_ID_STR
+from alyx_connector.params import _PAR_ID_STR
 
 """tuple: Default order of precedence for download protocol"""
 PROC_PRECEDENCE = ("http", "kachary")
