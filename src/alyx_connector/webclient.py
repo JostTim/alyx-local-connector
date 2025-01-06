@@ -30,7 +30,6 @@ Download a remote file, given a local path
 """
 
 import json
-import logging
 import math
 import os
 import re
@@ -47,7 +46,6 @@ import hashlib
 import zipfile
 import tempfile
 from getpass import getpass
-from contextlib import contextmanager
 
 from tqdm import tqdm
 
@@ -61,11 +59,15 @@ import concurrent.futures
 from urllib.parse import urlparse, urlunparse
 from openapi_parser import parse as parse_openapi_schema
 from openapi_parser.specification import Operation, Specification, Path as OpenAPIPath
+from openapi_parser.errors import ParserError
 
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional, Literal
 from types import MethodType
 
-_logger = logging.getLogger(__name__)
+from logging import Filter as LoggingFilter, Logger, getLogger
+from contextlib import contextmanager
+
+_logger = getLogger(__name__)
 
 
 def _cache_response(method):
@@ -811,45 +813,45 @@ class AlyxClient:
         """
         return self._generic_request(requests.delete, rest_query)
 
-    def download_file(self, url, **kwargs):
-        """
-        Downloads a single file or list of files on the Alyx server from a
-        file record REST field URL
+    # def download_file(self, url, **kwargs):
+    #     """
+    #     Downloads a single file or list of files on the Alyx server from a
+    #     file record REST field URL
 
-        Parameters
-        ----------
-        url : str, list
-            Full url(s) of the file(s)
-        kwargs : Any
-            WebClient.http_download_file parameters
+    #     Parameters
+    #     ----------
+    #     url : str, list
+    #         Full url(s) of the file(s)
+    #     kwargs : Any
+    #         WebClient.http_download_file parameters
 
-        Returns
-        -------
-        Local path(s) of downloaded file(s)
-        """
-        if isinstance(url, str):
-            url = self._validate_file_url(url)
-            download_fcn = http_download_file
-        else:
-            url = (self._validate_file_url(x) for x in url)
-            download_fcn = http_download_file_list
-        pars = dict(
-            silent=kwargs.pop("silent", self.silent),
-            target_dir=kwargs.pop("target_dir", self._par.CACHE_DIR),
-            username=self._par.HTTP_DATA_SERVER_LOGIN,
-            password=self._par.HTTP_DATA_SERVER_PWD,
-            **kwargs,
-        )
-        try:
-            files = download_fcn(url, **pars)
-        except HTTPError as ex:
-            if ex.code == 401:
-                ex.msg += (
-                    " - please check your HTTP_DATA_SERVER_LOGIN and "
-                    "HTTP_DATA_SERVER_PWD ONE params, or username/password kwargs"
-                )
-            raise ex
-        return files
+    #     Returns
+    #     -------
+    #     Local path(s) of downloaded file(s)
+    #     """
+    #     if isinstance(url, str):
+    #         url = self._validate_file_url(url)
+    #         download_fcn = http_download_file
+    #     else:
+    #         url = (self._validate_file_url(x) for x in url)
+    #         download_fcn = http_download_file_list
+    #     pars = dict(
+    #         silent=kwargs.pop("silent", self.silent),
+    #         target_dir=kwargs.pop("target_dir", self._par.CACHE_DIR),
+    #         username=self._par.HTTP_DATA_SERVER_LOGIN,
+    #         password=self._par.HTTP_DATA_SERVER_PWD,
+    #         **kwargs,
+    #     )
+    #     try:
+    #         files = download_fcn(url, **pars)
+    #     except HTTPError as ex:
+    #         if ex.code == 401:
+    #             ex.msg += (
+    #                 " - please check your HTTP_DATA_SERVER_LOGIN and "
+    #                 "HTTP_DATA_SERVER_PWD ONE params, or username/password kwargs"
+    #             )
+    #         raise ex
+    #     return files
 
     def download_cache_tables(self, source=None, destination=None):
         """Downloads the Alyx cache tables to the local data cache directory
@@ -1606,7 +1608,7 @@ class Client:
         protocol (str): Protocol used by the client, e.g., 'http' or 'https'.
         host (str): Host address, e.g., '127.0.0.1'.
         port (str): Port number, e.g., '80'.
-        scheme_endpoint (str): Endpoint for the API schema.
+        schema_endpoint (str): Endpoint for the API schema.
         default_port (str): Default port if none is specified.
     """
 
@@ -1614,20 +1616,38 @@ class Client:
     host: str
     port: str
 
-    scheme_endpoint = "/api/schema"
+    schema_endpoint = "/api/schema"
     default_port = "80"
 
-    def __init__(self, url: str, username=str, silent=True):
+    _schema = None
+    _par = None
+    _headers = None
 
-        self.protocol, self.host, self.port = self._validate_url(url)
+    def __init__(self, url: str, username=Optional[str], *, silent=True):
+
+        self.protocol, self.host, self.port, validated_url = self._validate_url(url)
         self.username = username
         self.silent = silent
-
-        self._schema = None
-        self._par = None
-        self._headers = None
+        self._obj_id = id(self)
 
     def _validate_url(self, input_url: str):
+        """Validate and correct a given URL.
+
+        This method checks if the input URL starts with 'http:' or 'https:'.
+        If not, it attempts to correct the URL by prepending 'http://' and
+        assumes the protocol is HTTP. It also ensures that a port is specified;
+        if missing, it defaults to port 80.
+
+        Args:
+            input_url (str): The URL to be validated and corrected.
+
+        Returns:
+            tuple: A tuple containing:
+                - protocol (str): The protocol of the validated URL.
+                - host (str): The host of the validated URL.
+                - port (str): The port of the validated URL.
+                - validated_url (str): The corrected and validated URL.
+        """
 
         if not input_url.startswith(("http:", "https:")):
             scheme_and_netloc = input_url.split("//")
@@ -1636,6 +1656,8 @@ class Client:
             else:
                 url = "http://" + scheme_and_netloc[1]
             print(f"corrected invalid url {input_url} into {url} asuming http protocol")
+        else:
+            url = input_url
 
         parsed_url = urlparse(url)
         protocol = parsed_url.scheme
@@ -1648,10 +1670,9 @@ class Client:
             host = host_and_port[0]
             print(f"corrected url {input_url} missing port info into port 80 asuming http protocol is used")
 
-        if self.url == "":
-            raise ValueError(f"Cound not parse the url {input_url}. Verify it is correct")
+        validated_url = self.urlunparse(protocol, host, port, original_url=input_url)
 
-        return protocol, host, port
+        return protocol, host, port, validated_url
 
     @property
     def netloc(self):
@@ -1661,20 +1682,20 @@ class Client:
     @property
     def url(self):
         "example : http://127.0.0.1:80"
-        return urlunparse((self.protocol, self.netloc, "", "", "", ""))
+        return self.urlunparse(self.protocol, self.host, self.port)
 
     base_url = url
 
     @property
     def params(self):
         if self._par is None:
-            self._par = alyx_connector.params.get(client=self.base_url, silent=self.silent, username=self.username)
+            self._par = self.get_params()
         return self._par
 
     @property
-    def headers(self):
+    def headers(self) -> dict:
         if self._headers is None:
-            self._headers = {**{}, "Accept": "application/json"}
+            self._headers = self.get_headers()
         return self._headers
 
     @property
@@ -1684,19 +1705,45 @@ class Client:
         self._schema = self.get_schema()
         return self._schema
 
+    def urlunparse(self, protocol, host, port, original_url: Optional[str] = None):
+        url = urlunparse((protocol, f"{host}:{port}", "", "", "", ""))
+        if url == "":
+            raise ValueError(f"Cound not parse the url {original_url}. Verify it is correct")
+        return url
+
     def get_schema(self) -> OpenAPISpecification:
-        schema = parse_openapi_schema(self.base_url + self.scheme_endpoint)
-        schema.paths_dict = {path.url: path for path in schema.paths}  # type: ignore
-        return schema  # type: ignore
+        logger = getLogger()
+        try:
+            with temporary_filter_out(logger, "Implicit type assignment: schema does not contain 'type' property"):
+                schema = parse_openapi_schema(self.url + self.schema_endpoint)
+            schema.paths_dict = {path.url: path for path in schema.paths}  # type: ignore
+            return schema  # type: ignore
+        except ParserError:
+            raise ConnectionError(
+                f"Can't connect to {self.url}.\n" + "Check your internet connections and Alyx database firewall"
+            )
+
+    def get_headers(self):
+        return {**{}, "Accept": "application/json"}
+
+    def get_params(self, url=None, username=None, silent=None):
+        return alyx_connector.params.get(
+            client=url or getattr(self, "url", None),
+            username=username or getattr(self, "username", None),
+            silent=silent if silent is not None else getattr(self, "silent", False),
+        )
 
     def list_endpoints(self):
         return sorted(self.schema.paths_dict.keys())
 
-    def path(self, path):
+    def path(self, path: str) -> UrlPath:
         return UrlPath(path, self)
 
-    def get_headers(self):
-        return None
+    def endpoint(self, path: str) -> "Endpoint":
+        return self.path(path).endpoint
+
+    def endpoint_exists(self, path: str) -> bool:
+        return self.endpoint(path).exists()
 
     def rest(self, endpoint_name: str, action: str, **kwargs):
         endpoint = self.path(endpoint_name).endpoint.assert_exists()
@@ -1705,6 +1752,9 @@ class Client:
     def describe(self, endpoint_name: str):
         endpoint = self.path(endpoint_name).endpoint.assert_exists()
         return endpoint
+
+    def authenticate(self):
+        return NotImplementedError
 
 
 class Endpoint:
@@ -1759,40 +1809,34 @@ class Operateur:
         return self.client.schema.paths_dict[self.path]
 
 
-class AlyoClient(Client):
+class AlyxeClient(Client):
+
+    default_expiry = timedelta(days=1)
+    cache_mode = "GET"
+    _token = None
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        username=None,
-        password=None,
-        cache_dir=None,
-        silent=False,
-        cache_rest="GET",
+        url: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        *,
+        silent: Optional[bool] = False,
+        cache_dir: Optional[bool] = None,
     ):
+        if url is not None:
+            _, _, _, url = self._validate_url(url)
 
-        self.silent = silent
-        self.params = alyx_connector.params.get(client=base_url, silent=self.silent, username=username)
+        _params = self.get_params(url, username, silent)
 
-        base_url = base_url or self.params.ALYX_URL
-        if base_url is None:
-            raise ValueError("base_url was None after resolution")
+        if username is None:
+            username = _params.ALYX_LOGIN
 
-        super().__init__(base_url)
+        if url is None:
+            url = _params.ALYX_URL
 
-        self.params = self.params.set("CACHE_DIR", cache_dir or self.params.CACHE_DIR)
-
-        if username or password:
-            self.authenticate(username, password)
-
-        self._headers = {**(self._headers or {}), "Accept": "application/json"}
-        # REST cache parameters
-        # The default length of time that cache file is valid for,
-        # The default expiry is overridden by the `expires` kwarg.  If False, the caching is
-        # turned off.
-        self.default_expiry = timedelta(days=1)
-        self.cache_mode = cache_rest
-        self._obj_id = id(self)
+        super().__init__(url=url, username=username, silent=silent)  # type: ignore
+        self.authenticate(username, password)
 
     @property
     def cache_dir(self):
@@ -1810,6 +1854,12 @@ class AlyoClient(Client):
     def is_logged_in(self):
         """bool: Check if user logged into Alyx database; True if user is authenticated"""
         return self._token and self.user and self._headers and "Authorization" in self._headers
+
+    @property
+    def token(self) -> str:
+        if self._token is None:
+            self.authenticate()
+        return self._token
 
     def authenticate(self, username=None, password=None, cache_token=True, force=False):
         """
@@ -1829,18 +1879,18 @@ class AlyoClient(Client):
         """
         # Get username
         if username is None:
-            username = getattr(self._par, "ALYX_LOGIN", self.user)
+            username = getattr(self._par, "ALYX_LOGIN", self.username)
         if username is None and not self.silent:
             username = input("Enter Alyx username:")
 
         # Check if token cached
-        if not force and getattr(self._par, "TOKEN", False) and username in self._par.TOKEN:
-            self._token = self._par.TOKEN[username]
+        if not force and getattr(self.params, "TOKEN", False) and username in self.params.TOKEN:
+            self._token = self.params.TOKEN[username]["token"]
             self._headers = {
-                "Authorization": f"Token {list(self._token.values())[0]}",
+                "Authorization": f"Token {self._token}",
                 "Accept": "application/json",
             }
-            self.user = username
+            self.username = username
             return
 
         # Get password
@@ -1854,12 +1904,12 @@ class AlyoClient(Client):
             rep = requests.post(self.base_url + "/auth-token", data=credentials)
         except requests.exceptions.ConnectionError:
             raise ConnectionError(
-                f"Can't connect to {self.base_url}.\n" + "Check your internet connections and Alyx database firewall"
+                f"Can't connect to {self.url}.\n" + "Check your internet connections and Alyx database firewall"
             )
         # Assign token or raise exception on auth error
         if rep.ok:
-            self._token = rep.json()
-            assert list(self._token.keys()) == ["token"]
+            self._token = rep.json().get("token")
+
         else:
             if rep.status_code == 400:  # Auth error; re-raise with details
                 redacted = "*" * len(credentials["password"]) if credentials["password"] else None
@@ -1870,19 +1920,39 @@ class AlyoClient(Client):
                 raise requests.HTTPError(rep.status_code, rep.url, message, response=rep)
             else:
                 rep.raise_for_status()
+            return
 
         self._headers = {
-            "Authorization": "Token {}".format(list(self._token.values())[0]),
+            "Authorization": f"Token {self.token}",
             "Accept": "application/json",
         }
+        self.username = username
+
         if cache_token:
-            # Update saved pars
-            par = alyx_connector.params.get(client=self.base_url, silent=True)
-            tokens = getattr(par, "TOKEN", {})
-            tokens[username] = self._token
-            alyx_connector.params.save(par.set("TOKEN", tokens), self.base_url)
-            # Update current pars
-            self._par = self._par.set("TOKEN", tokens)
-        self.user = username
+            token_struct = {username: {"token": self._token}}
+            alyx_connector.params.save(self.params.set("TOKEN", token_struct), self.url)
+
         if not self.silent:
-            print(f"Connected to {self.base_url} as {self.user}")
+            print(f"Connected to {self.url} as {self.username}")
+
+
+class ExcludeMessageFilter(LoggingFilter):
+    def __init__(self, message_to_exclude):
+        super().__init__()
+        self.message_to_exclude = message_to_exclude
+
+    def filter(self, record):
+        return self.message_to_exclude not in record.getMessage()
+
+
+@contextmanager
+def temporary_filter_out(logger: Logger, message_to_exclude):
+    filter_instance = ExcludeMessageFilter(message_to_exclude)
+
+    # Add the filter to the root logger
+    logger.addFilter(filter_instance)
+    try:
+        yield
+    finally:
+        # Remove the filter from the root logger
+        logger.removeFilter(filter_instance)
