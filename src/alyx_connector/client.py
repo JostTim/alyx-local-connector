@@ -1,671 +1,367 @@
-"""API for interacting with a remote Alyx instance through REST
-The AlyxClient class contains methods for making remote Alyx REST queries and downloading remote
-files through Alyx.
-
-Examples
---------
->>> alyx = AlyxClient(
-...     username='test_user', password='TapetesBloc18',
-...     base_url='https://test.alyx.internationalbrainlab.org')
-
-List subjects
-
->>> subjects = alyx.rest('subjects', 'list')
-
-Create a subject
-
->>> record = {
-...     'nickname': nickname,
-...     'responsible_user': 'olivier',
-...     'birth_date': '2019-06-15',
-...     'death_date': None,
-...     'lab': 'cortexlab',
-... }
->>> new_subj = alyx.rest('subjects', 'create', data=record)
-
-Download a remote file, given a local path
-
->>> url = 'zadorlab/Subjects/flowers/2018-07-13/1/channels.probe.npy'
->>> local_path = alyx.download_file(url, target_dir='zadorlab/Subjects/flowers/2018-07-13/1/')
-"""
-
-import json
-import math
-import os
 import re
-import functools
 import requests
+import math
+import json
 from requests.models import Response
-import urllib.request
-from urllib.error import HTTPError
-import urllib.parse
-from collections.abc import Mapping
-from datetime import datetime, timedelta
-from pathlib import Path
-import warnings
-import hashlib
-import zipfile
-import tempfile
-from getpass import getpass
-
-from tqdm import tqdm
-
-from pprint import pprint
-from iblutil.io import hashfile
-from iblutil.io.params import set_hidden
-from alyx_connector.util import ensure_list
-import alyx_connector.params
-import concurrent.futures
-
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse, urlsplit
 from openapi_parser import parse as parse_openapi_schema
 from openapi_parser.specification import Operation, Specification, Path as OpenAPIPath
 from openapi_parser.errors import ParserError
+from datetime import datetime, timedelta
+from rich.prompt import Prompt
+from rich.text import Text
+from logging import getLogger
+from pathlib import Path
+from collections.abc import Mapping
+from abc import ABC, abstractmethod
 
-from typing import List, Tuple, Dict, Optional, Literal, Callable, Any
-from types import MethodType
+from .logging import temporary_filter_out
+from . import params as config
 
-from logging import Filter as LoggingFilter, Logger, getLogger
-from contextlib import contextmanager
+from typing import Any, Dict, Tuple, List, Callable, Optional, Literal, Protocol
 
-request_function = Callable[..., Response]
+logger = getLogger("alyx_connector.client")
 
-_logger = getLogger(__name__)
 
-
-def _cache_response(method):
-    """Decorator for the generic request method
-
-    Caches the result of the query and on subsequent calls, returns cache instead of hitting the
-    database
-
-    Parameters
-    ----------
-    method : function
-        Function to wrap (i.e. AlyxClient._generic_request)
-
-    Returns
-    -------
-    function
-        Handle to wrapped method
-    """
-
-    @functools.wraps(method)
-    def wrapper_decorator(alyx_client, *args, expires=None, clobber=False, **kwargs):
-        """
-        REST caching wrapper
-
-        Parameters
-        ----------
-        alyx_client : AlyxClient
-            An instance of the AlyxClient class
-        args : any
-            Positional arguments for applying to wrapped function
-        expires : bool
-            An optional timedelta for how long cached response is valid.  If True, the cached
-            response will not be used on subsequent calls.  If None, the default expiry is applied.
-        clobber : bool
-            If True any existing cached response is overwritten
-        kwargs : any
-            Keyword arguments for applying to wrapped function
-
-        Returns
-        -------
-        dict
-            The REST response JSON either from cached file or directly from remote
-        """
-        expires = expires or alyx_client.default_expiry
-        mode = (alyx_client.cache_mode or "").lower()
-        if args[0].__name__ != mode and mode != "*":
-            return method(alyx_client, *args, **kwargs)
-        # Check cache
-        rest_cache = alyx_client.cache_dir.joinpath(".rest")
-        sha1 = hashlib.sha1()
-        sha1.update(bytes(args[1], "utf-8"))
-        name = sha1.hexdigest()
-        # Reversible but length may exceed 255 chars
-        # name = base64.urlsafe_b64encode(args[2].encode('UTF-8')).decode('UTF-8')
-        files = list(rest_cache.glob(name))
-        cached = None
-        if len(files) == 1 and not clobber:
-            _logger.debug("loading REST response from cache")
-            with open(files[0], "r") as f:
-                cached, when = json.load(f)
-            if datetime.fromisoformat(when) > datetime.now():
-                return cached
-        try:
-            response = method(alyx_client, *args, **kwargs)
-        except requests.exceptions.ConnectionError as ex:
-            if cached and not clobber:
-                warnings.warn("Failed to connect, returning cached response", RuntimeWarning)
-                return cached
-            raise ex  # No cache and can't connect to database; re-raise
-
-        # Save response into cache
-        if not rest_cache.exists():
-            rest_cache.mkdir(parents=True)
-            rest_cache = set_hidden(rest_cache, True)
-
-        _logger.debug("caching REST response")
-        expiry_datetime = datetime.now() + (timedelta() if expires is True else expires)
-        with open(rest_cache / name, "w") as f:
-            json.dump((response, expiry_datetime.isoformat()), f)
-        return response
-
-    return wrapper_decorator
-
-
-@contextmanager
-def no_cache(ac=None):
-    """Temporarily turn off the REST cache for a given Alyx instance.
-
-    This function is particularly useful when calling ONE methods in remote mode.
-
-    Parameters
-    ----------
-    ac : AlyxClient
-        An instance of the AlyxClient to modify.  If None, the a new object is instantiated
-
-    Returns
-    -------
-    AlyxClient
-        The instance of Alyx with cache disabled
-
-    Examples
-    --------
-    >>> from one.api import ONE
-    >>> with no_cache(ONE().alyx):
-    ...     eids = ONE().search(subject='foobar', query_type='remote')
-    """
-    ac = ac or AlyxClient()
-    cache_mode = ac.cache_mode
-    ac.cache_mode = None
-    try:
-        yield ac
-    finally:
-        ac.cache_mode = cache_mode
-
-
-class _PaginatedResponse(Mapping):
-    """
-    This class allows to emulate a list from a paginated response.
-    Provides cache functionality.
-
-    Examples
-    --------
-    >>> r = _PaginatedResponse(client, response)
-    """
-
-    def __init__(self, alyx, rep, cache_args=None, callbacks=[]):
-        """
-        A paginated response cache object
-
-        Parameters
-        ----------
-        alyx : AlyxClient
-            An instance of an AlyxClient associated with the REST response
-        rep : dict
-            A paginated REST response JSON dictionary
-        cache_args : dict
-            A dict of kwargs to pass to _cache_response decorator upon subsequent requests
-        """
-
-        self.alyx = alyx
-        self.base_url = self.alyx.base_url
-        self.count = rep["count"]
-        self.limit = len(rep["results"])
-        self._cache_args = cache_args or {}
-        # store URL without pagination query params
-        self.query = rep["next"]
-        # init the cache, list with None with count size
-        self._cache = [None] * self.count
-
-        if not isinstance(callbacks, list):
-            callbacks = [callbacks]
-
-        self.finishing_callbacks = callbacks
-
-        # fill the cache with results of the query
-        self.store_results(rep, 0)
-
-    def __len__(self):
-        return self.count
-
-    def __getitem__(self, item):
-        """Returns an item from cache if the indices locations are already loaded,
-        or populates the cache chunk by chunk if some locations are empty.
-        """
-        if isinstance(item, slice):
-            while None in self._cache[item]:
-                # .index(None) finds the first location where the cache is none,
-                # and populate stores a new chunk starting from here
-                self.populate(self._cache[item].index(None))
-        elif item > self.count:
-            raise IndexError(
-                f"The paginated response has no item at position {item} : " f"it contains only {self.count} items"
-            )
-        elif self._cache[item] is None:
-            self.populate(item)
-        return self._cache[item]
-
-    def populate(self, idx):
-        """Populate a chunk of size self.limit, from an offset query depending on the value of the index required."""
-        offset = self.limit * math.floor(idx / self.limit)
-        query = update_url_params(self.query, {"limit": self.limit, "offset": offset})
-        res = self.alyx._generic_request(requests.get, query, **self._cache_args)
-        if self.count != res["count"]:
-            warnings.warn(
-                f"remote results for {urllib.parse.urlsplit(query).path} endpoint changed; results may be inconsistent",
-                RuntimeWarning,
-            )
-        self.store_results(res, offset)
-
-    def store_results(self, res, offset):
-        for i, r in enumerate(res["results"][: self.count - offset]):
-            self._cache[i + offset] = self.finish_result(r)
-
-    def finish_result(self, result):
-        """Method that should be overridden in child classes"""
-        for callback in self.finishing_callbacks:
-            result = callback(result)
-        return result
-
-    def add_finishing_callback(self, callback):
-        if callback not in self.finishing_callbacks:
-            self.finishing_callbacks.append(callback)
-
-    def __iter__(self):
-        for i in range(self.count):
-            try:
-                yield self.__getitem__(i)
-            except requests.HTTPError as e:
-                _logger.error(
-                    f"{e.response.status_code} error while trying to access " f"PaginatedResponse data at position {i}"
-                )
-                raise e
-
-
-def update_url_params(url: str, params: dict) -> str:
-    """Add/update the query parameters of a URL and make url safe
-
-    Parameters
-    ----------
-    url : str
-        A URL string with which to update the query parameters
-    params : dict
-        A dict of new parameters.  For multiple values for the same query, use a list (see example)
-
-    Returns
-    -------
-    str
-        A new URL with said parameters updated
-
-    Examples
-    -------
-    >>> update_url_params('website.com/?q=', {'pg': 5})
-    'website.com/?pg=5'
-
-    >>> update_url_params('website.com?q=xxx', {'pg': 5, 'foo': ['bar', 'baz']})
-    'website.com?q=xxx&pg=5&foo=bar&foo=baz'
-    """
-    # Remove percent-encoding
-    url = urllib.parse.unquote(url)
-    parsed_url = urllib.parse.urlsplit(url)
-    # Extract URL query arguments and convert to dict
-    parsed_get_args = urllib.parse.parse_qs(parsed_url.query, keep_blank_values=False)
-    # Merge URL arguments dict with new params
-    parsed_get_args.update(params)
-    # Convert back to query string
-    encoded_get_args = urllib.parse.urlencode(parsed_get_args, doseq=True)
-    # Update parser and convert to full URL str
-    return parsed_url._replace(query=encoded_get_args).geturl()
-
-
-def update_url_listparams(url: str, params: list) -> str:
-    # Remove percent-encoding
-    url = urllib.parse.unquote(url)
-    parsed_url = urllib.parse.urlsplit(url)
-
-    # Extract URL query arguments, merge with existing params
-    parsed_get_args = urllib.parse.parse_qsl(parsed_url.query, keep_blank_values=False)
-    parsed_get_args += params
-
-    # Convert back to query string
-    encoded_get_args = urllib.parse.urlencode(parsed_get_args, doseq=True)
-    # Update parser and convert to full URL str
-    return parsed_url._replace(query=encoded_get_args).geturl()
-
-
-def http_download_file_list(links_to_file_list, **kwargs):
-    """
-    Downloads a list of files from a remote HTTP server from a list of links.
-    Generates up to 4 separate threads to handle downloads.
-    Same options behaviour as http_download_file.
-
-    Parameters
-    ----------
-    links_to_file_list : list
-        List of http links to files
-    kwargs
-        Optional arguments to pass to http_download_file
-
-    Returns
-    -------
-    list of pathlib.Path
-        A list of the local full path of the downloaded files.
-    """
-    links_to_file_list = list(links_to_file_list)  # In case generator was passed
-    n_threads = 4  # Max number of threads
-    outputs = []
-    target_dir = kwargs.pop("target_dir", None)
-    # Ensure target dir the length of url list
-    if target_dir is None or isinstance(target_dir, (str, Path)):
-        target_dir = [target_dir] * len(links_to_file_list)
-    assert len(target_dir) == len(links_to_file_list)
-    # using with statement to ensure threads are cleaned up promptly
-    zipped = zip(links_to_file_list, target_dir)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as executor:
-        # Multithreading load operations
-        futures = [executor.submit(http_download_file, link, target_dir=target, **kwargs) for link, target in zipped]
-        zip(links_to_file_list, ensure_list(kwargs.pop("target_dir", None)))
-        # TODO Reintroduce variable timeout value based on file size and download speed of 5 Mb/s?
-        # timeout = reduce(lambda x, y: x + (y.get('file_size', 0) or 0), dsets, 0) / 625000 ?
-        concurrent.futures.wait(futures, timeout=None)
-        # build return list
-        for future in futures:
-            outputs.append(future.result())
-    # if returning md5, separate list of tuples into two lists: (files, md5)
-    return list(zip(*outputs)) if kwargs.get("return_md5", False) else outputs
-
-
-def http_download_file(
-    full_link_to_file,
-    chunks=None,
-    *,
-    clobber=False,
-    silent=False,
-    username="",
-    password="",
-    target_dir="",
-    return_md5=False,
-    headers=None,
-):
-    """
-    Download a file from a remote HTTP server.
-
-    Parameters
-    ----------
-    full_link_to_file : str
-        HTTP link to the file
-    chunks : tuple of ints
-        Chunks to download
-    clobber : bool
-        If True, force overwrite the existing file
-    silent : bool
-        If True, suppress download progress bar
-    username : str
-        User authentication for password protected file server
-    password : str
-        Password authentication for password protected file server
-    target_dir : str, pathlib.Path
-        Directory in which files are downloaded; defaults to user's Download directory
-    return_md5 : bool
-        If True an MD5 hash of the file is additionally returned
-    headers : list of dicts
-        Additional headers to add to the request (auth tokens etc.)
-
-    Returns
-    -------
-    pathlib.Path
-        The full file path of the downloaded file
-    """
-    if not full_link_to_file:
-        return (None, None) if return_md5 else None
-
-    # makes sure special characters get encoded ('#' in file names for example)
-    surl = urllib.parse.urlsplit(full_link_to_file, allow_fragments=False)
-    full_link_to_file = surl._replace(path=urllib.parse.quote(surl.path)).geturl()
-
-    # default cache directory is the home dir
-    if not target_dir:
-        target_dir = str(Path.home().joinpath("Downloads"))
-
-    # This is the local file name
-    file_name = str(target_dir) + os.sep + os.path.basename(full_link_to_file)
-
-    # do not overwrite an existing file unless specified
-    if not clobber and os.path.exists(file_name):
-        return (file_name, hashfile.md5(file_name)) if return_md5 else file_name
-
-    # This should be the base url you wanted to access.
-    baseurl = os.path.split(str(full_link_to_file))[0]
-
-    # Create a password manager
-    manager = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-    if username and password:
-        manager.add_password(None, baseurl, username, password)
-
-    # Create an authentication handler using the password manager
-    auth = urllib.request.HTTPBasicAuthHandler(manager)
-
-    # Create an opener that will replace the default urlopen method on further calls
-    opener = urllib.request.build_opener(auth)
-    urllib.request.install_opener(opener)
-
-    # Support for partial download.
-    req = urllib.request.Request(full_link_to_file)
-    if chunks is not None:
-        first_byte, n_bytes = chunks
-        req.add_header("Range", "bytes=%d-%d" % (first_byte, first_byte + n_bytes - 1))
-
-    # add additional headers
-    if headers is not None:
-        for k in headers:
-            req.add_header(k, headers[k])
-
-    # Open the url and get the length
-    try:
-        u = urllib.request.urlopen(req)
-    except HTTPError as e:
-        _logger.error(f"{str(e)} {full_link_to_file}")
-        raise e
-
-    file_size = int(u.getheader("Content-length"))
-    if not silent:
-        print(f"Downloading: {file_name} Bytes: {file_size}")
-    block_sz = 8192 * 64 * 8
-
-    md5 = hashlib.md5()
-    f = open(file_name, "wb")
-    with tqdm(total=file_size / 1024 / 1024, disable=silent) as pbar:
-        while True:
-            buffer = u.read(block_sz)
-            if not buffer:
-                break
-            f.write(buffer)
-            if return_md5:
-                md5.update(buffer)
-            pbar.update(len(buffer) / 1024 / 1024)
-    f.close()
-
-    return (file_name, md5.hexdigest()) if return_md5 else file_name
-
-
-def file_record_to_url(file_records) -> list:
-    """
-    Translate a Json dictionary to an usable http url for downloading files.
-
-    Parameters
-    ----------
-    file_records : dict
-        JSON containing a 'data_url' field
-
-    Returns
-    -------
-    list of str
-        A list of full data urls
-    """
-    urls = []
-    for fr in file_records:
-        if fr["data_url"] is not None:
-            urls.append(fr["data_url"])
-    return urls
-
-
-def dataset_record_to_url(dataset_record) -> list:
-    """
-    Extracts a list of files urls from a list of dataset queries.
-
-    Parameters
-    ----------
-    dataset_record : list, dict
-        Dataset JSON from a REST request
-
-    Returns
-    -------
-    list of str
-        A list of file urls corresponding to the datasets records
-    """
-    urls = []
-    if isinstance(dataset_record, dict):
-        dataset_record = [dataset_record]
-    for ds in dataset_record:
-        urls += file_record_to_url(ds["file_records"])
-    return urls
-
-
-class AlyxClient:
-    """
-    Class that implements simple GET/POST wrappers for the Alyx REST API.
-    See https://openalyx.internationalbrainlab.org/docs
-    """
-
-    _token = None
-    _headers = None  # Headers for REST requests only
-    """str: The Alyx username"""
-    user = None
-    """str: The Alyx database URL"""
-    base_url: None | str = None
-
-    def __init__(
+class RequestFunction(Protocol):
+    def __call__(
         self,
-        base_url=None,
-        username=None,
-        password=None,
-        cache_dir=None,
-        silent=False,
-        cache_rest="GET",
-    ):
-        """
-        Create a client instance that allows to GET and POST to the Alyx server.
-        For One, constructor attempts to authenticate with credentials in params.py.
-        For standalone cases, AlyxClient(username='', password='', base_url='').
+        url: str,
+        *,
+        stream: Optional[bool] = True,
+        headers: Optional[dict] = None,
+        data: Optional[Any] = None,
+        files: Optional[Any] = None,
+    ) -> Response: ...
 
-        Parameters
-        ----------
-        base_url : str
-            Alyx server address, including port and protocol
-        username : str
-            Alyx database user
-        password : str
-            Alyx database password
-        cache_dir : str, pathlib.Path
-            The default root download location
-        silent : bool
-            If true, user prompts and progress bars are suppressed
-        cache_rest : str
-            Which type of http method to apply cache to; if '*', all requests are cached
-        stay_logged_in : bool
-            If true, auth token is cached
+
+class OpenAPISpecification(Specification):
+
+    @property
+    def paths_dict(self) -> Dict[str, OpenAPIPath]:
+        return {path.url: path for path in self.paths}
+
+
+class UrlPath(str):
+
+    client: "Client"
+    requirements: List[str]
+
+    def __new__(cls, path: str, client: "Client"):
+        path = cls.normalize_path(path)
+        obj = super(UrlPath, cls).__new__(cls, path)
+        setattr(obj, "client", client)
+        setattr(obj, "requirements", cls.parse_requirements(path))
+        return obj
+
+    @staticmethod
+    def parse_requirements(path):
+        pattern = re.compile(r"{(\w+)}")
+        matches = pattern.findall(path)
+        return matches
+
+    @staticmethod
+    def normalize_path(path):
+        if not path.startswith("/"):
+            path = "/" + path
+
+        # Ensure the path does not end with a '/'
+        if path.endswith("/"):
+            path = path[:-1]
+
+        return path
+
+    def make_url(self, fragment="", **kwargs):
+        """_summary_
+
+        Args:
+            params (str, optional): Query parameters. Defaults to "".
+            query (str, optional): Query string , separated from the rest of the url by an ?
+                (? wich you should not provide here). Defaults to "".
+            fragment (str, optional): Section, separated from the rest of the url by an #
+                (# wich you should not provide here) also called anchor. Defaults to "".
+
+        Returns:
+            _type_: _description_
         """
+        query_dict, requirements_dict = self.separate_query_and_requirements(**kwargs)
+        url = urlunparse(
+            (
+                self.client.protocol,  # http or https
+                self.client.netloc,  # netloc = host+port
+                self.finalized_path(**requirements_dict),  # path
+                "",  # params
+                self.make_query_string(query_dict),  # querystring example : ?thing=truc
+                fragment,  # basically an anchor, fragment example : #title1
+            )
+        )
+        return url
+
+    def finalized_path(self, **requirements_dict):
+        path = str(self)
+        for requirement in self.requirements:
+            if (requirement_value := requirements_dict.get(requirement)) is None:
+                raise ValueError(f"You must provide a {requirement} keyword argument with the path {self}")
+            path = path.replace(f"{{{requirement}}}", str(requirement_value))
+        return path
+
+    def separate_query_and_requirements(self, **kwargs) -> Tuple[dict, dict]:
+        """Separates the query parameters (key values) and the requirements (parts of the url that are needed)
+        from an unpacked dictionnary as input.
+
+        Returns:
+            Tuple[dict, dict]: dictionnary of query arguments, dictionnary of path required elements
+        """
+        requirements = {k: v for k, v in kwargs.items() if k in self.requirements}
+        query_dict = {k: v for k, v in kwargs.items() if k not in self.requirements}
+        return query_dict, requirements
+
+    def make_query_string(self, query_dict: dict) -> str:
+        query_list = []
+        for key, value in query_dict.items():
+            query_list.append(f"{key}={value}")
+        return "&".join(query_list)
+
+    @property
+    def endpoint(self):
+        return Endpoint(self, self.client)
+
+
+class Client(ABC):
+    """
+    Client class for managing connections.
+
+    Attributes:
+        protocol (str): Protocol used by the client, e.g., 'http' or 'https'.
+        host (str): Host address, e.g., '127.0.0.1'.
+        port (str): Port number, e.g., '80'.
+        schema_endpoint (str): Endpoint for the API schema.
+        default_port (str): Default port if none is specified.
+    """
+
+    protocol: str
+    host: str
+    port: str
+
+    schema_endpoint = "/api/schema"
+    default_port = "80"
+
+    _schema = None
+    _par = None
+    _headers = None
+
+    def __init__(self, url: str, username=Optional[str], *, silent=True):
+
+        self.protocol, self.host, self.port, validated_url = self._validate_url(url)
+        self.username = username
         self.silent = silent
-        self._par = alyx_connector.params.get(client=base_url, silent=self.silent, username=username)
-
-        self.base_url = base_url or self._par.ALYX_URL
-        if self.base_url is None:
-            raise ValueError("base_url was None after resolution")
-
-        self._par = self._par.set("CACHE_DIR", cache_dir or self._par.CACHE_DIR)
-        if username or password:
-            self.authenticate(username, password)
-        self._rest_schemes = None
-        # the mixed accept application may cause errors sometimes, only necessary for the docs
-        self._headers = {**(self._headers or {}), "Accept": "application/json"}
-        # REST cache parameters
-        # The default length of time that cache file is valid for,
-        # The default expiry is overridden by the `expires` kwarg.  If False, the caching is
-        # turned off.
-        self.default_expiry = timedelta(days=1)
-        self.cache_mode = cache_rest
         self._obj_id = id(self)
 
-    @property
-    def rest_schemes(self):
-        """dict: The REST endpoints and their parameters"""
-        # Delayed fetch of rest schemes speeds up instantiation
-        if not self._rest_schemes:
-            # self._rest_schemes = self.get("/api/schema", expires=timedelta(weeks=1)).get("paths")
-            # _logger.debug(f"Rest schemes : {self._rest_schemes}")
-            self._rest_schemes = self.get_openapi3_scheme()
-            print(self._rest_schemes)
-        return self._rest_schemes
+    def _validate_url(self, input_url: str):
+        """Validate and correct a given URL.
+
+        This method checks if the input URL starts with 'http:' or 'https:'.
+        If not, it attempts to correct the URL by prepending 'http://' and
+        assumes the protocol is HTTP. It also ensures that a port is specified;
+        if missing, it defaults to port 80.
+
+        Args:
+            input_url (str): The URL to be validated and corrected.
+
+        Returns:
+            tuple: A tuple containing:
+                - protocol (str): The protocol of the validated URL.
+                - host (str): The host of the validated URL.
+                - port (str): The port of the validated URL.
+                - validated_url (str): The corrected and validated URL.
+        """
+
+        if not input_url.startswith(("http:", "https:")):
+            scheme_and_netloc = input_url.split("//")
+            if len(scheme_and_netloc) == 1:
+                url = "http://" + scheme_and_netloc[0]
+            else:
+                url = "http://" + scheme_and_netloc[1]
+            print(f"corrected invalid url {input_url} into {url} asuming http protocol")
+        else:
+            url = input_url
+
+        parsed_url = urlparse(url)
+        protocol = parsed_url.scheme
+        host_and_port = parsed_url.netloc.split(":")
+        if len(host_and_port) == 2:
+            port = host_and_port[1]
+            host = host_and_port[0]
+        else:
+            port = "80"
+            host = host_and_port[0]
+            print(f"corrected url {input_url} missing port info into port 80 asuming http protocol is used")
+
+        validated_url = self.urlunparse(protocol, host, port, original_url=input_url)
+
+        return protocol, host, port, validated_url
 
     @property
-    def cache_dir(self):
-        """pathlib.Path: The location of the downloaded file cache"""
-        return Path(self._par.CACHE_DIR)
-
-    def delete_cache(self):
-        """Delete all cached files in the .rest directory of your ONE installation "
-        "(usually located in ONE inside downloads)"""
-        cache_dir = self.cache_dir.joinpath(".rest")
-        for item in os.listdir(cache_dir):
-            os.remove(os.path.join(cache_dir, item))
+    def netloc(self):
+        "example : 127.0.0.1:80"
+        return f"{self.host}:{self.port}"
 
     @property
-    def is_logged_in(self):
-        """bool: Check if user logged into Alyx database; True if user is authenticated"""
-        return self._token and self.user and self._headers and "Authorization" in self._headers
+    def url(self):
+        "example : http://127.0.0.1:80"
+        return self.urlunparse(self.protocol, self.host, self.port)
+
+    base_url = url
+
+    @property
+    def params(self):
+        if self._par is None:
+            self._par = self.get_params()
+        return self._par
+
+    @property
+    def headers(self) -> dict:
+        if self._headers is None:
+            self._headers = self.get_initial_headers()
+        return self._headers
+
+    @property
+    def schema(self) -> OpenAPISpecification:
+        if self._schema:
+            return self._schema
+        self._schema = self.get_initial_schema()
+        return self._schema
+
+    def urlunparse(self, protocol, host, port, original_url: Optional[str] = None):
+        url = urlunparse((protocol, f"{host}:{port}", "", "", "", ""))
+        if url == "":
+            raise ValueError(f"Cound not parse the url {original_url}. Verify it is correct")
+        return url
+
+    def get_initial_schema(self) -> OpenAPISpecification:
+        logger = getLogger()
+        try:
+            with temporary_filter_out(logger, "Implicit type assignment: schema does not contain 'type' property"):
+                schema = parse_openapi_schema(self.url + self.schema_endpoint)
+            schema.paths_dict = {path.url: path for path in schema.paths}  # type: ignore
+            return schema  # type: ignore
+        except ParserError:
+            raise ConnectionError(
+                f"Can't connect to {self.url}.\n" + "Check your internet connections and Alyx database firewall"
+            )
+
+    def get_initial_headers(self):
+        return {**{}, "Accept": "application/json"}
+
+    def get_params(self, url=None, username=None, silent=None):
+        return config.get(
+            client=url or getattr(self, "url", None),
+            username=username or getattr(self, "username", None),
+            silent=silent if silent is not None else getattr(self, "silent", False),
+        )
 
     def list_endpoints(self):
-        """
-        Return a list of available REST endpoints
+        return sorted(self.schema.paths_dict.keys())
 
-        Returns
-        -------
-            List of REST endpoint strings
-        """
-        EXCLUDE = ("_type", "_meta", "", "auth-token")
-        return sorted(path for path in self.rest_schemes.paths.keys() if path not in EXCLUDE)
+    def path(self, path: str) -> UrlPath:
+        return UrlPath(path, self)
 
-    def endpoint_exists(self, path: str):
+    def endpoint(self, path: str) -> "Endpoint":
+        return self.path(path).endpoint
+
+    def endpoint_exists(self, path: str) -> bool:
+        return self.endpoint(path).exists()
+
+    def rest(self, endpoint_name: str, action: str, **kwargs):
+        endpoint = self.path(endpoint_name).endpoint.assert_exists()
+        return endpoint.actions[action].request(**kwargs)
+
+    def search(self, endpoint_name: str, **kwargs):
+        if kwargs.get("id"):
+            return self.rest(endpoint_name, "retrieve", **kwargs)
+        return self.rest(endpoint_name, "list", **kwargs)
+
+    def describe(self, endpoint_name: str):
+        endpoint = self.path(endpoint_name).endpoint.assert_exists()
+        return endpoint
+
+    @abstractmethod
+    def authenticate(self, *args, **kwargs):
+        return NotImplementedError
+
+    @abstractmethod
+    def ensure_authenticated(self, *args, **kwargs):
+        return NotImplementedError
+
+    def logout(self, *args, **kwargs):
+        return NotImplementedError
+
+
+class Endpoint:
+
+    def __init__(self, path: UrlPath, client: Client):
+
+        self.path = path
+        self.client = client
+
+    def exists(self):
+        return True if self.routes else False
+
+    @property
+    def routes(self):
+        search_path = self.path.replace("/", r"\/")
+        pattern = re.compile(rf"^{search_path}(?:(?=\/{{).*)?$")
+        return [UrlPath(key, self.client) for key in self.client.schema.paths_dict.keys() if pattern.match(key)]
+
+    @property
+    def actions(self):
+        return {
+            operation.operation_id.split("_")[-1]: Operateur(route, self.client, operation)
+            for route in self.routes
+            for operation in self.client.schema.paths_dict[route].operations
+            if operation.operation_id is not None
+        }
+
+    def assert_exists(self):
+        if not self.exists():
+            self.raise_not_existing()
+        return self
+
+    def raise_not_existing(self):
+        raise ValueError(f"Endpoint {self.path} do not exist in the schema")
+
+
+class Operateur:
+
+    def __init__(self, path: UrlPath, client: Client, operation: Operation):
+        self.path = path
+        self.client = client
+        self.operation = operation
+
+    @property
+    def action_name(self):
+        operation_id = self.operation.operation_id
+        action_name = operation_id.split("_")[-1] if operation_id is not None else ""
+        return action_name
+
+    def request(self, data=None, files=None, **kwargs):
+        request_method: RequestFunction = getattr(requests, self.operation.method.value)
         try:
-            self.rest_schemes.resolve_path(path)
-            return True
-        except ValueError:
-            return False
+            url = self.path.make_url(**kwargs)
+        except ValueError as e:
+            raise ValueError(f"For the {self.action_name} action, " + str(e)) from e
+        return self.get_response(request_method, url, data=data, files=files)
 
-    @_cache_response
-    def _generic_request(self, reqfunction: request_function, rest_query: str, data=None, files=None):
-        if not self._token and (not self._headers or "Authorization" not in self._headers):
-            self.authenticate(username=self.user)
-        # makes sure the base url is the one from the instance
+    def get_response(self, request_method: RequestFunction, url: str, data=None, files=None):
+        self.client.ensure_authenticated()
 
-        # make sure we keep only the path and query part of the url, without the netloc and scheme
-        rest_query = urllib.parse.urlsplit(rest_query)._replace(netloc="", scheme="").geturl()
-
-        if not rest_query.startswith("/"):
-            rest_query = "/" + rest_query
-        _logger.debug(f"{self.base_url + rest_query}, headers: {self._headers}")
-        headers = self._headers.copy()
+        headers = self.client.headers.copy()
+        logger.info(f"Sending a request with url={url}, headers={headers}")
         if files is None:
             data = json.dumps(data) if isinstance(data, dict) or isinstance(data, list) else data
             headers["Content-Type"] = "application/json"
-        if rest_query.startswith("/docs"):
-            # the mixed accept application may cause errors sometimes, only necessary for the docs
-            headers["Accept"] = "application/coreapi+json"
-        r = reqfunction(
-            self.base_url + rest_query,
+        r = request_method(
+            url,
             stream=True,
             headers=headers,
             data=data,
@@ -676,25 +372,87 @@ class AlyxClient:
         elif r and r.status_code == 204:
             return
         if r.status_code == 403 and '"Invalid token."' in r.text:
-            _logger.debug("Token invalid; Attempting to re-authenticate...")
+            logger.debug("Token invalid; Attempting to re-authenticate...")
             # Log out in order to flush stale token.  At this point we no longer have the password
             # but if the user re-instantiates with a password arg it will request a new token.
-            username = self.user
-            if self.silent:  # no need to log out otherwise; user will be prompted for password
-                self.logout()
-            self.authenticate(username=username, force=True)
-            return self._generic_request(reqfunction, rest_query, data=data, files=files)
+            if self.client.silent:  # no need to log out otherwise; user will be prompted for password
+                self.client.logout()
+            self.client.authenticate(username=self.client.username, force=True)
+            return self.get_response(request_method, url, data=data, files=files)
         else:
-            _logger.debug("Response text: " + r.text)
+            logger.debug("Response text: " + r.text)
             try:
                 message = json.loads(r.text)
                 message.pop("status_code", None)  # Get status code from response object instead
                 message = message.get("detail") or message  # Get details if available
             except json.decoder.JSONDecodeError:
                 message = r.text
-            raise requests.HTTPError(r.status_code, rest_query, message, response=r)
+            raise requests.HTTPError(r.status_code, url, message, response=r)
 
-    def authenticate(self, username=None, password=None, cache_token=True, force=False):
+    def __repr__(self):
+        return f"{self.path} - {self.operation}"
+
+    def describe(self):
+        return self.client.schema.paths_dict[self.path]
+
+
+class TokenizedClient(Client):
+
+    default_expiry = timedelta(days=1)
+    cache_mode = "GET"
+    _token: str = ""
+
+    def __init__(
+        self,
+        url: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        *,
+        silent: Optional[bool] = False,
+        # cache_dir: Optional[bool] = None,
+    ):
+        if url is not None:
+            _, _, _, url = self._validate_url(url)
+
+        _params = self.get_params(url, username, silent)
+
+        if username is None:
+            username = _params.ALYX_LOGIN
+
+        if url is None:
+            url = _params.ALYX_URL
+
+        super().__init__(url=url, username=username, silent=silent)  # type: ignore
+        self.authenticate(username, password, cache_token=True)
+
+    def clear_rest_cache(self):
+        """Clear all REST response cache files for the base url"""
+        for file in self.cache_dir.joinpath(".rest").glob("*"):
+            file.unlink()
+
+    @property
+    def cache_dir(self):
+        """pathlib.Path: The location of the downloaded file cache"""
+        return Path(self.params.CACHE_DIR)
+
+    # def delete_cache(self):
+    #     """Delete all cached files in the .rest directory of your ONE installation "
+    #     "(usually located in ONE inside downloads)"""
+    #     cache_dir = self.cache_dir.joinpath(".rest")
+    #     for item in cache_dir.iterdir():
+    #         item.unlink() if item.is_file() else None
+
+    @property
+    def token(self) -> str:
+        if not self._token:
+            self.authenticate()
+        return self._token
+
+    def ensure_authenticated(self):
+        if not self.token or "Authorization" not in self.headers:
+            raise ConnectionError("Cannot authenticate")
+
+    def authenticate(self, username=None, password=None, cache_token=True, force=False) -> str | None:
         """
         Gets a security token from the Alyx REST API to create requests headers.
         Credentials are loaded via one.params
@@ -712,37 +470,38 @@ class AlyxClient:
         """
         # Get username
         if username is None:
-            username = getattr(self._par, "ALYX_LOGIN", self.user)
+            username = getattr(self._par, "ALYX_LOGIN", self.username)
         if username is None and not self.silent:
             username = input("Enter Alyx username:")
 
         # Check if token cached
-        if not force and getattr(self._par, "TOKEN", False) and username in self._par.TOKEN:
-            self._token = self._par.TOKEN[username]
+        if not force and getattr(self.params, "TOKEN", False) and username in self.params.TOKEN:
+            self._token = self.params.TOKEN[username]["token"]
             self._headers = {
-                "Authorization": f"Token {list(self._token.values())[0]}",
+                "Authorization": f"Token {self._token}",
                 "Accept": "application/json",
             }
-            self.user = username
-            return
+            self.username = username
+            return self._token
 
         # Get password
         if password is None:
             password = getattr(self._par, "ALYX_PWD", None)
         if password is None and not self.silent:
-            password = getpass(f'Enter Alyx password for "{username}":')
+            password = Prompt.ask(
+                Text("Enter Alyx password for ", style="blue").append(f"{username}", style="turquoise2"), password=True
+            )
 
         try:
             credentials = {"username": username, "password": password}
             rep = requests.post(self.base_url + "/auth-token", data=credentials)
         except requests.exceptions.ConnectionError:
             raise ConnectionError(
-                f"Can't connect to {self.base_url}.\n" + "Check your internet connections and Alyx database firewall"
+                f"Can't connect to {self.url}.\n" + "Check your internet connections and Alyx database firewall"
             )
         # Assign token or raise exception on auth error
         if rep.ok:
-            self._token = rep.json()
-            assert list(self._token.keys()) == ["token"]
+            self._token = rep.json().get("token")
         else:
             if rep.status_code == 400:  # Auth error; re-raise with details
                 redacted = "*" * len(credentials["password"]) if credentials["password"] else None
@@ -753,27 +512,31 @@ class AlyxClient:
                 raise requests.HTTPError(rep.status_code, rep.url, message, response=rep)
             else:
                 rep.raise_for_status()
+            return self._token
 
         self._headers = {
-            "Authorization": "Token {}".format(list(self._token.values())[0]),
+            "Authorization": f"Token {self.token}",
             "Accept": "application/json",
         }
+        self.username = username
+
         if cache_token:
-            # Update saved pars
-            par = alyx_connector.params.get(client=self.base_url, silent=True)
-            tokens = getattr(par, "TOKEN", {})
-            tokens[username] = self._token
-            alyx_connector.params.save(par.set("TOKEN", tokens), self.base_url)
-            # Update current pars
-            self._par = self._par.set("TOKEN", tokens)
-        self.user = username
+            token_struct = {username: {"token": self._token}}
+            config.save(self.params.set("TOKEN", token_struct), self.url)
+
         if not self.silent:
-            print(f"Connected to {self.base_url} as {self.user}")
+            print(f"Connected to {self.url} as {self.username}")
+
+        return self._token
+
+
+class AlyxClient(TokenizedClient):
 
     def logout(self):
         """Log out from Alyx
         Deletes the cached authentication token for the currently logged-in user
         """
+        raise NotImplementedError("Deprecated")
         if not self.is_logged_in:
             return
         par = alyx_connector.params.get(client=self.base_url, silent=True)
@@ -794,7 +557,7 @@ class AlyxClient:
         if not self.silent:
             print(f"{username} logged out from {self.base_url}")
 
-    def delete(self, rest_query):
+    def delete(self, json_response):
         """
         Sends a DELETE request to the Alyx server. Will raise an exception on any status_code
         other than 200, 201.
@@ -856,41 +619,41 @@ class AlyxClient:
     #         raise ex
     #     return files
 
-    def download_cache_tables(self, source=None, destination=None):
-        """Downloads the Alyx cache tables to the local data cache directory
+    # def download_cache_tables(self, source=None, destination=None):
+    #     """Downloads the Alyx cache tables to the local data cache directory
 
-        Parameters
-        ----------
-        source : str, pathlib.Path
-            The remote HTTP directory of the cache table (excluding the filename).
-            Default: AlyxClient.base_url.
-        destination : str, pathlib.Path
-            The target directory into to which the tables will be downloaded.
+    #     Parameters
+    #     ----------
+    #     source : str, pathlib.Path
+    #         The remote HTTP directory of the cache table (excluding the filename).
+    #         Default: AlyxClient.base_url.
+    #     destination : str, pathlib.Path
+    #         The target directory into to which the tables will be downloaded.
 
-        Returns
-        -------
-            List of parquet table file paths.
-        """
-        # query the database for the latest cache; expires=None overrides cached response
-        self.cache_dir.mkdir(exist_ok=True)
-        if not self.is_logged_in:
-            self.authenticate()
-        source = str(source or f"{self.base_url}/cache.zip")
-        destination = destination or self.cache_dir
+    #     Returns
+    #     -------
+    #         List of parquet table file paths.
+    #     """
+    #     # query the database for the latest cache; expires=None overrides cached response
+    #     self.cache_dir.mkdir(exist_ok=True)
+    #     if not self.is_logged_in:
+    #         self.authenticate()
+    #     source = str(source or f"{self.base_url}/cache.zip")
+    #     destination = destination or self.cache_dir
 
-        headers = self._headers if source.startswith(self.base_url) else None
-        with tempfile.TemporaryDirectory(dir=destination) as tmp:
-            file = http_download_file(
-                source,
-                headers=headers,
-                silent=self.silent,
-                target_dir=tmp,
-                clobber=True,
-            )
-            with zipfile.ZipFile(file, "r") as zipped:
-                files = zipped.namelist()
-                zipped.extractall(destination)
-        return [Path(destination, table) for table in files]
+    #     headers = self._headers if source.startswith(self.base_url) else None
+    #     with tempfile.TemporaryDirectory(dir=destination) as tmp:
+    #         file = http_download_file(
+    #             source,
+    #             headers=headers,
+    #             silent=self.silent,
+    #             target_dir=tmp,
+    #             clobber=True,
+    #         )
+    #         with zipfile.ZipFile(file, "r") as zipped:
+    #             files = zipped.namelist()
+    #             zipped.extractall(destination)
+    #     return [Path(destination, table) for table in files]
 
     def _validate_file_url(self, url):
         """Asserts that URL matches HTTP_DATA_SERVER parameter.
@@ -1002,43 +765,6 @@ class AlyxClient:
     #         return self.urlify_list(result)
     #     else:
     #         raise TypeError(f"HTTP Request result was not a dict nor a _PaginatedResponse but type : {type(result)}")
-
-    def get(self, rest_query, **kwargs):
-        """
-        Sends a GET request to the Alyx server. Will raise an exception on any status_code
-        other than 200, 201.
-        For the dictionary contents and list of endpoints, refer to:
-        https://openalyx.internationalbrainlab.org/docs
-
-        Parameters
-        ----------
-        rest_query : str
-            A REST URL path, e.g. '/sessions?user=Hamish'
-        kwargs : any
-            Optional arguments to pass to _generic_request and _cache_response decorator
-
-        Returns
-        -------
-        JSON interpreted dictionary from response
-        """
-        rep = self._generic_request(requests.get, rest_query, **kwargs)
-        if isinstance(rep, dict) and list(rep.keys()) == [
-            "count",
-            "next",
-            "previous",
-            "results",
-        ]:
-            if len(rep["results"]) < rep["count"]:
-                cache_args = {k: v for k, v in kwargs.items() if k in ("clobber", "expires")}
-                _logger.debug(f"Creating a paginated response for a large Alyx request. Query : {rest_query}")
-                rep = _PaginatedResponse(self, rep, cache_args, callbacks=self.fix_url)
-                _logger.debug(
-                    f"Paginated response total size is : {rep.count}. "
-                    f"Limit size is : {rep.limit}. Query is : {rep.query}"
-                )
-            else:
-                rep = rep["results"]
-        return self.fix_url(rep)
 
     def patch(self, rest_query, data=None, files=None):
         """
@@ -1488,3 +1214,149 @@ class AlyxClient:
         """Clear all REST response cache files for the base url"""
         for file in self.cache_dir.joinpath(".rest").glob("*"):
             file.unlink()
+
+
+class ResponseManager:
+
+    def __init__(self, client: Client):
+        self.client = client
+
+    def __getitem__(self, value):
+        return getattr(self, value)
+
+    def list(self, json_response: dict, original_url: str, **kwargs):
+
+        if isinstance(json_response, dict) and list(json_response.keys()) == [
+            "count",
+            "next",
+            "previous",
+            "results",
+        ]:
+            if len(json_response["results"]) < json_response["count"]:
+                cache_args = {k: v for k, v in kwargs.items() if k in ("clobber", "expires")}
+                logger.debug(f"Creating a paginated response for a large Alyx request. Query : {original_url}")
+                json_response = _PaginatedResponse(self, json_response, cache_args, callbacks=self.fix_url)
+                logger.debug(
+                    f"Paginated response total size is : {json_response.count}. "
+                    f"Limit size is : {json_response.limit}. Query is : {json_response.query}"
+                )
+            else:
+                json_response = json_response["results"]
+        return self.fix_url(json_response)
+
+    def fix_url(self, response_data, fixed_keys=["admin_url"], do_fix=False):
+
+        if isinstance(response_data, list):
+            return [self.fix_url(item, do_fix=False) for item in response_data]
+        elif isinstance(response_data, dict):
+            return {
+                key: (self.fix_url(item, do_fix=True) if key in fixed_keys else self.fix_url(item, do_fix=False))
+                for key, item in response_data.items()
+            }
+        elif isinstance(response_data, _PaginatedResponse):
+            response_data.add_finishing_callback(self.fix_url)
+            return response_data
+        elif do_fix:
+            baseurl = urlsplit(self.client.url)
+            return urlsplit(response_data)._replace(scheme=baseurl.scheme, netloc=baseurl.netloc).geturl()
+        else:
+            return response_data
+
+
+class _PaginatedResponse(Mapping):
+    """
+    This class allows to emulate a list from a paginated response.
+    Provides cache functionality.
+
+    Examples
+    --------
+    >>> r = _PaginatedResponse(client, response)
+    """
+
+    def __init__(self, alyx, rep, cache_args=None, callbacks=[]):
+        """
+        A paginated response cache object
+
+        Parameters
+        ----------
+        alyx : AlyxClient
+            An instance of an AlyxClient associated with the REST response
+        rep : dict
+            A paginated REST response JSON dictionary
+        cache_args : dict
+            A dict of kwargs to pass to _cache_response decorator upon subsequent requests
+        """
+
+        self.alyx = alyx
+        self.base_url = self.alyx.base_url
+        self.count = rep["count"]
+        self.limit = len(rep["results"])
+        self._cache_args = cache_args or {}
+        # store URL without pagination query params
+        self.query = rep["next"]
+        # init the cache, list with None with count size
+        self._cache = [None] * self.count
+
+        if not isinstance(callbacks, list):
+            callbacks = [callbacks]
+
+        self.finishing_callbacks = callbacks
+
+        # fill the cache with results of the query
+        self.store_results(rep, 0)
+
+    def __len__(self):
+        return self.count
+
+    def __getitem__(self, item):
+        """Returns an item from cache if the indices locations are already loaded,
+        or populates the cache chunk by chunk if some locations are empty.
+        """
+        if isinstance(item, slice):
+            while None in self._cache[item]:
+                # .index(None) finds the first location where the cache is none,
+                # and populate stores a new chunk starting from here
+                self.populate(self._cache[item].index(None))
+        elif item > self.count:
+            raise IndexError(
+                f"The paginated response has no item at position {item} : " f"it contains only {self.count} items"
+            )
+        elif self._cache[item] is None:
+            self.populate(item)
+        return self._cache[item]
+
+    def populate(self, idx):
+        """Populate a chunk of size self.limit, from an offset query depending on the value of the index required."""
+        offset = self.limit * math.floor(idx / self.limit)
+        query = update_url_params(self.query, {"limit": self.limit, "offset": offset})
+        res = self.alyx._generic_request(requests.get, query, **self._cache_args)
+        if self.count != res["count"]:
+            logger.warning(
+                f"remote results for {urlsplit(query).path} endpoint changed; results may be inconsistent",
+                RuntimeWarning,
+            )
+        self.store_results(res, offset)
+
+    def store_results(self, res, offset):
+        for i, r in enumerate(res["results"][: self.count - offset]):
+            self._cache[i + offset] = self.finish_result(r)
+
+    def finish_result(self, result):
+        """Method that should be overridden in child classes"""
+        for callback in self.finishing_callbacks:
+            result = callback(result)
+        return result
+
+    def add_finishing_callback(self, callback):
+        if callback not in self.finishing_callbacks:
+            self.finishing_callbacks.append(callback)
+
+    def __iter__(self):
+        for i in range(self.count):
+            try:
+                yield self.__getitem__(i)
+            except requests.HTTPError as e:
+                logger.error(
+                    f"{e.response.status_code} error while trying to access " f"PaginatedResponse data at position {i}"
+                )
+                raise e

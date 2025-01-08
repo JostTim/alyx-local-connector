@@ -9,14 +9,26 @@ The ONE params comprise two files: a caches file that contains a map of Alyx db 
 directories, and a separate parameter file for each url containing the client parameters.  The
 caches file also sets the default client for when no url is provided.
 """
+
 import re
 import shutil
 
-from iblutil.io import params as iopar
 from getpass import getpass
-from pathlib import Path
+from pathlib import Path, PurePath
 from urllib.parse import urlsplit
 import unicodedata
+
+from datetime import datetime
+import collections
+import sys
+import os
+import json
+import subprocess
+import logging
+import time
+import socket
+import asyncio
+from math import inf
 
 _PAR_ID_STR = "one"
 _CLIENT_ID_STR = "caches"
@@ -29,14 +41,14 @@ LOCAL_ROOT_DIR_DEFAULT = Path(CACHE_DIR_DEFAULT) / "LOCAL_DATA"
 def default():
     """Default Web client parameters"""
     par = {
-        "ALYX_URL": "http://157.99.138.172:8080",
+        "ALYX_URL": "http://127.0.0.0:80",
         "ALYX_LOGIN": "guest",
         "HTTP_DATA_SERVER": "--unused",
         "HTTP_DATA_SERVER_LOGIN": "--unused",
         "HTTP_DATA_SERVER_PWD": "--unused",
         "LOCAL_ROOT": LOCAL_ROOT_DIR_DEFAULT,
     }
-    return iopar.from_dict(par)
+    return from_dict(par)
 
 
 def _get_current_par(k, par_current):
@@ -116,16 +128,16 @@ def setup(client=None, silent=False, make_default=None, username=None):
 
     # If a client URL has been provided, set it as the default URL
     par_default = par_default.set("ALYX_URL", client or par_default.ALYX_URL)
-    par_current = iopar.read(f"{_PAR_ID_STR}/{client_key}", par_default)
+    par_current = read(f"{_PAR_ID_STR}/{client_key}", par_default)
     if username:
         par_current = par_current.set("ALYX_LOGIN", username)
 
     # Load the db URL map
-    cache_map = iopar.read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {"CLIENT_MAP": dict()})
+    cache_map = read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {"CLIENT_MAP": dict()})
     cache_dir = cache_map.CLIENT_MAP.get(client_key, Path(CACHE_DIR_DEFAULT, client_key))
 
     if not silent:
-        par = iopar.as_dict(par_default)
+        par = as_dict(par_default)
         for k in par.keys():
             cpar = _get_current_par(k, par_current)
             # Prompt for database URL; skip if client url already provided
@@ -163,7 +175,7 @@ def setup(client=None, silent=False, make_default=None, username=None):
         # create the LOCAL_ROOT directory if it does not exist
         Path(par["LOCAL_ROOT"]).mkdir(exist_ok=True, parents=True)
 
-        par = iopar.from_dict(par)
+        par = from_dict(par)
 
         # Prompt for cache directory
         client_key = _key_from_url(par.ALYX_URL)
@@ -208,11 +220,11 @@ def setup(client=None, silent=False, make_default=None, username=None):
     if make_default or "DEFAULT" not in cache_map.as_dict():
         cache_map = cache_map.set("DEFAULT", client_key)
 
-    iopar.write(f"{_PAR_ID_STR}/{client_key}", par)  # Client params
-    iopar.write(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", cache_map)
+    write(f"{_PAR_ID_STR}/{client_key}", par)  # Client params
+    write(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", cache_map)
 
     if not silent:
-        print("ONE Parameter files location: " + iopar.getfile(_PAR_ID_STR))
+        print("ONE Parameter files location: " + getfile(_PAR_ID_STR))
 
     return cache_map
 
@@ -235,12 +247,12 @@ def get(client=None, silent=False, username=None):
         A Params object for the AlyxClient.
     """
     client_key = _key_from_url(client) if client else None
-    cache_map = iopar.read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {})
+    cache_map = read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {})
     # If there are no params for this client, run setup routine
     if not cache_map or (client_key and client_key not in cache_map.CLIENT_MAP):
         cache_map = setup(client=client, silent=silent, username=username)
     cache = cache_map.CLIENT_MAP[client_key or cache_map.DEFAULT]
-    pars = iopar.read(f"{_PAR_ID_STR}/{client_key or cache_map.DEFAULT}").set("CACHE_DIR", cache)
+    pars = read(f"{_PAR_ID_STR}/{client_key or cache_map.DEFAULT}").set("CACHE_DIR", cache)
     if username:
         pars = pars.set("ALYX_LOGIN", username)
     return _patch_params(pars)
@@ -260,7 +272,7 @@ def get_default_client(include_schema=True) -> str:
     str
         The default database URL with or without the schema, or None if no default is set
     """
-    cache_map = iopar.as_dict(iopar.read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {})) or {}
+    cache_map = as_dict(read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {})) or {}
     client_key = cache_map.get("DEFAULT", None)
     if not client_key or include_schema is False:
         return client_key
@@ -279,8 +291,8 @@ def save(par, client):
         The Alyx URL that corresponds to these parameters
     """
     # Remove cache dir variable before saving
-    par = {k: v for k, v in iopar.as_dict(par).items() if "CACHE_DIR" not in k}
-    iopar.write(f"{_PAR_ID_STR}/{_key_from_url(client)}", par)
+    par = {k: v for k, v in as_dict(par).items() if "CACHE_DIR" not in k}
+    write(f"{_PAR_ID_STR}/{_key_from_url(client)}", par)
 
 
 def get_cache_dir(client=None) -> Path:
@@ -298,7 +310,7 @@ def get_cache_dir(client=None) -> Path:
     pathlib.Path
         The download cache path
     """
-    cache_map = iopar.read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {})
+    cache_map = read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {})
     client = _key_from_url(client) if client else cache_map.DEFAULT
     cache_dir = Path(cache_map.CLIENT_MAP[client] if cache_map else CACHE_DIR_DEFAULT)
     cache_dir.mkdir(exist_ok=True, parents=True)
@@ -315,7 +327,7 @@ def get_params_dir() -> Path:
     pathlib.Path
         The root ONE parameters directory
     """
-    return Path(iopar.getfile(_PAR_ID_STR))
+    return Path(getfile(_PAR_ID_STR))
 
 
 def check_cache_conflict(cache_dir):
@@ -334,7 +346,7 @@ def check_cache_conflict(cache_dir):
     AssertionError
         The directory is set as a cache for a Web client
     """
-    cache_map = getattr(iopar.read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {}), "CLIENT_MAP", None)
+    cache_map = getattr(read(f"{_PAR_ID_STR}/{_CLIENT_ID_STR}", {}), "CLIENT_MAP", None)
     if cache_map:
         assert not any(x == str(cache_dir) for x in cache_map.values())
 
@@ -377,3 +389,247 @@ def _patch_params(par):
             get_params_dir().joinpath(".rest").rmdir()
 
     return par
+
+
+def as_dict(par) -> dict:
+    if not par or isinstance(par, dict):
+        return par
+    else:
+        return dict(par._asdict())
+
+
+def from_dict(par_dict):
+    if not par_dict:
+        return None
+    par = collections.namedtuple("Params", par_dict.keys())
+
+    class IBLParams(par):
+        __slots__ = ()
+
+        def set(self, field, value):
+            d = as_dict(self)
+            d[field] = value
+            return from_dict(d)
+
+        def as_dict(self):
+            return as_dict(self)
+
+    return IBLParams(**par_dict)
+
+
+def getfile(str_params):
+    """
+    Returns full path of the param file per system convention:
+     linux/mac: ~/.str_params, Windows: APPDATA folder
+
+    :param str_params: string that identifies parm file
+    :return: string of full path
+    """
+    # strips already existing dot if any
+    parts = ["." + p if not p.startswith(".") else p for p in Path(str_params).parts]
+    if sys.platform == "win32" or sys.platform == "cygwin":
+        pfile = str(PurePath(os.environ["APPDATA"], *parts))
+    else:
+        pfile = str(Path.home().joinpath(*parts))
+    return pfile
+
+
+def set_hidden(path, hide: bool) -> Path:
+    """
+    Set a given file or folder path to be hidden.  On macOS and Windows a specific flag is set,
+    while on other systems the file or folder is simply renamed to start with a dot.  On macOS the
+    folder may only be hidden in Explorer.
+
+    Parameters
+    ----------
+    path : str, pathlib.Path
+        The path of the file or folder to (un)hide.
+    hide : bool
+        If True the path is set to hidden, otherwise it is unhidden.
+
+    Returns
+    -------
+    pathlib.Path
+        The path of the file or folder, which may have been renamed.
+    """
+    path = Path(path)
+    assert path.exists()
+    if sys.platform == "win32" or sys.platform == "cygwin":
+        flag = ("+" if hide else "-") + "H"
+        subprocess.run(["attrib", flag, str(path)]).check_returncode()
+    elif sys.platform == "darwin":
+        flag = ("" if hide else "no") + "hidden"
+        subprocess.run(["chflags", flag, str(path)]).check_returncode()
+    elif hide and not path.name.startswith("."):
+        path = path.rename(path.parent.joinpath("." + path.name))
+    elif not hide and path.name.startswith("."):
+        path = path.rename(path.parent.joinpath(path.name[1:]))
+    return path
+
+
+def read(str_params, default=None):
+    """
+    Reads in and parse Json parameter file into dictionary.  If the parameter file doesn't
+    exist and no defaults are provided, a FileNotFound error is raised, otherwise any extra
+    default parameters will be written into the file.
+
+    Examples:
+        # Load parameters, raise error if file not found
+        par = read('globus/admin')
+
+        # Load with defaults
+        par = read('globus/admin', {'local_endpoint': None, 'remote_endpoint': None})
+
+        # Return empty dict if file not found (i.e. touch new param file)
+        par = read('new_pars', {})
+
+    :param str_params: path to text json file
+    :param default: default values for missing parameters
+    :return: named tuple containing parameters
+    """
+    pfile = getfile(str_params)
+    par_dict = as_dict(default) or {}
+    if Path(pfile).exists():
+        with open(pfile) as fil:
+            file_pars = json.loads(fil.read())
+        par_dict.update(file_pars)
+    elif default is None:  # No defaults provided
+        raise FileNotFoundError(f"Parameter file {pfile} not found")
+
+    if not Path(pfile).exists() or par_dict.keys() > file_pars.keys():
+        # write the new parameter file with the extra param
+        write(str_params, par_dict)
+    return from_dict(par_dict)
+
+
+def write(str_params, par):
+    """
+    Write a parameter file in Json format
+
+    :param str_params: path to text json file
+    :param par: dictionary containing parameters values
+    :return: None
+    """
+    pfile = Path(getfile(str_params))
+    if not pfile.parent.exists():
+        pfile.parent.mkdir()
+    dpar = as_dict(par)
+    for k in dpar:
+        if isinstance(dpar[k], Path):
+            dpar[k] = str(dpar[k])
+    with open(pfile, "w") as fil:
+        json.dump(as_dict(par), fil, sort_keys=False, indent=4)
+
+
+class FileLock:
+    def __init__(self, filename, log=None, timeout=10, timeout_action="delete"):
+        """
+        A context manager to ensure a file is not written to.
+
+        This context manager checks whether a lock file already exists, indicating that the
+        filename is currently being written to by another process, and waits until it is free
+        before entering.  If the lock file is not removed within the timeout period, it is either
+        forcebly removed (assumes other process hanging or killed), or raises an exception.
+
+        Before entering, a new lock file is created, containing the hostname, datetime and pid,
+        then subsequenctly removed upon exit.
+
+        Parameters
+        ----------
+        filename : pathlib.Path, str
+            A filepath to 'lock'.
+        log : logging.Logger
+            A logger instance to use.
+        timeout : float
+            How long to wait before either raising an exception or deleting the previous lock file.
+        timeout_action : {'delete', 'raise'} str
+            Action to take if previous lock file remains throughout timeout period. Either delete
+            the old lock file or raise an exception.
+
+        Examples
+        --------
+        Ensure a file is not being written to by another process before writing
+
+        >>> with FileLock(filename, timeout_action='delete'):
+        >>>     with open(filename, 'w') as fp:
+        >>>         fp.write(r'{"foo": "bar"}')
+
+        Asychronous implementation example with raise behaviour
+
+        >>> try:
+        >>>     async with FileLock(filename, timeout_action='raise'):
+        >>>         with open(filename, 'w') as fp:
+        >>>             fp.write(r'{"foo": "bar"}')
+        >>> except asyncio.TimeoutError:
+        >>>     print(f'failed to write to {filename}')
+        """
+        self.filename = Path(filename)
+        self._logger = log or __name__
+        if not isinstance(log, logging.Logger):
+            self._logger = logging.getLogger(self._logger)
+
+        self.timeout = timeout
+        self.timeout_action = timeout_action
+        if self.timeout_action not in ("delete", "raise"):
+            raise ValueError(f"Invalid timeout action: {self.timeout_action}")
+        self._async_poll_freq = 0.2  # how long to sleep between lock file checks in async mode
+
+    @property
+    def lockfile(self):
+        """pathlib.Path: the lock filepath."""
+        return self.filename.with_suffix(".lock")
+
+    async def _lock_check_async(self):
+        while self.lockfile.exists():
+            assert self._async_poll_freq > 0
+            await asyncio.sleep(self._async_poll_freq)
+
+    def __enter__(self):
+        # if a lock file exists retries n times to see if it exists
+        attempts = 0
+        n_attempts = 5 if self.timeout else inf
+        timeout = (self.timeout / n_attempts) if self.timeout else self._poll_freq
+
+        while self.lockfile.exists() and attempts < n_attempts:
+            self._logger.info("file lock found, waiting %.2f seconds %s", timeout, self.lockfile)
+            time.sleep(timeout)
+            attempts += 1
+
+        # if the file still exists after 5 attempts, remove it as it's a job that went wrong
+        if self.lockfile.exists():
+            with open(self.lockfile, "r") as fp:
+                _contents = json.load(fp) if self.lockfile.stat().st_size else "<empty>"
+                self._logger.debug("file lock contents: %s", _contents)
+            if self.timeout_action == "delete":
+                self._logger.info("stale file lock found, deleting %s", self.lockfile)
+                self.lockfile.unlink()
+            else:
+                raise TimeoutError(f"{self.lockfile} file lock timed out")
+
+        # add in the lock file, add some metadata to ease debugging if one gets stuck
+        with open(self.lockfile, "w") as fp:
+            json.dump(dict(datetime=datetime.utcnow().isoformat(), hostname=str(socket.gethostname)), fp)
+
+    async def __aenter__(self):
+        # if a lock file exists wait until timeout before removing
+        try:
+            await asyncio.wait_for(self._lock_check_async(), timeout=self.timeout)  # py3.11 use with asyncio.timeout
+        except asyncio.TimeoutError as e:
+            with open(self.lockfile, "r") as fp:
+                _contents = json.load(fp) if self.lockfile.stat().st_size else "<empty>"
+                self._logger.debug("file lock contents: %s", _contents)
+            if self.timeout_action == "raise":
+                raise e
+            self._logger.info("stale file lock found, deleting %s", self.lockfile)
+            self.lockfile.unlink()
+
+        # add in the lock file, add some metadata to ease debugging if one gets stuck
+        with open(self.lockfile, "w") as fp:
+            info = dict(datetime=datetime.utcnow().isoformat(), hostname=str(socket.gethostname), pid=os.getpid())
+            json.dump(info, fp)
+
+    def __exit__(self, exc_type, exc_value, exc_tb):
+        self.lockfile.unlink()
+
+    async def __aexit__(self, exc_type, exc_value, exc_tb):
+        self.lockfile.unlink()

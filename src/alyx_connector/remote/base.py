@@ -20,16 +20,13 @@ TODO Release changes to alyx repo first
 
 from abc import abstractmethod
 import logging
-
-from iblutil.io import params as iopar
-
-from alyx_connector.params import _PAR_ID_STR
+from .. import params
 
 """tuple: Default order of precedence for download protocol"""
 PROC_PRECEDENCE = ("http", "kachary")
 ALYX_JSON = {"access_protocol": {("http", "kachary")}}
 """str: Location of the remote download client parameters"""
-PAR_ID_STR = f"{_PAR_ID_STR}/remote"
+PAR_ID_STR = f"{params._PAR_ID_STR}/remote"
 _logger = logging.getLogger(__name__)
 
 
@@ -64,11 +61,11 @@ def load_client_params(client_key=None, assert_present=True):
     >>> pars = load_client_params()
     """
     try:
-        p = iopar.read(PAR_ID_STR)
+        p = params.read(PAR_ID_STR)
         if not client_key:
             return p
         for k in client_key.split("."):
-            p = iopar.from_dict(getattr(p, k))
+            p = params.from_dict(getattr(p, k))
         return p
     except (FileNotFoundError, AttributeError) as ex:
         if assert_present:
@@ -93,13 +90,13 @@ def save_client_params(new_pars, client_key=None):
         If client_key is None, all parameter fields must hold dicts
     """
     if not client_key:
-        if not all(isinstance(x, dict) for x in iopar.as_dict(new_pars).values()):
+        if not all(isinstance(x, dict) for x in params.as_dict(new_pars).values()):
             raise ValueError("Not all parameter fields contain dicts")
-        return iopar.write(PAR_ID_STR, new_pars)  # Save all parameters
+        return params.write(PAR_ID_STR, new_pars)  # Save all parameters
     # Save parameters into client key field
-    pars = iopar.as_dict(iopar.read(PAR_ID_STR, {}) or {})
-    pars[client_key] = iopar.as_dict(new_pars)
-    iopar.write(PAR_ID_STR, pars)
+    pars = params.as_dict(params.read(PAR_ID_STR, {}) or {})
+    pars[client_key] = params.as_dict(new_pars)
+    params.write(PAR_ID_STR, pars)
 
 
 class DownloadClient:
