@@ -12,7 +12,7 @@ class ExcludeMessageFilter(Filter):
 
 
 @contextmanager
-def temporary_filter_out(logger: Logger, message_to_exclude):
+def filter_message(logger: Logger, message_to_exclude):
     filter_instance = ExcludeMessageFilter(message_to_exclude)
 
     # Add the filter to the root logger
