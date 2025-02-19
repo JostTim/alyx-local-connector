@@ -20,7 +20,7 @@ class Directory:
     def root_path(self) -> Path:
         # windows
         if platform == "win32" or platform == "cygwin":
-            return Path(environ["APPDATA"]) / self.directory_name
+            return Path(environ["LOCALAPPDATA"]) / self.directory_name
         # linux
         else:
             return Path.home() / self.directory_name

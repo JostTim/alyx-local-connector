@@ -27,7 +27,7 @@ class Singleton(type):
         else:
             instance = cls._instances[cls]
             # here we are going to call the __init__ and maybe reinitialize.
-            if getattr(cls, "__allow_reinstanciation", False) and reinstanciate:
+            if getattr(cls, "__allow_reinstanciation", True) and reinstanciate:
                 # if the class allows reinitialization, then do it
                 instance.__init__(*args, **kwargs)  # call the init again
 
