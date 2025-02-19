@@ -4,6 +4,7 @@ __pycache__
 *.*~
 *.pyc
 .venv*
+__pypackages__*
 .pdm-build*
 python/scratch
 .idea/*
