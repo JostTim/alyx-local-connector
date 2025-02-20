@@ -1,4 +1,4 @@
-from urllib.parse import urlparse, urlunparse, urlsplit
+from urllib.parse import urlparse, urlunparse, urlsplit, parse_qs
 from typing import Optional
 
 
@@ -83,3 +83,9 @@ class UrlValidator:
     @staticmethod
     def urlsplit(url: str):
         return urlsplit(url)
+
+    @staticmethod
+    def get_limit_offset(url: str) -> dict:
+        parsed_url = urlparse(url)
+        params = {k: v[0] for k, v in parse_qs(parsed_url.query).items() if k in ("limit", "offset")}
+        return params

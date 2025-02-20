@@ -1,4 +1,5 @@
-import requests
+import requests, json
+from requests.models import Response
 from datetime import timedelta
 from logging import getLogger
 from abc import ABC, abstractmethod
@@ -6,7 +7,7 @@ from abc import ABC, abstractmethod
 
 from ..configuration import Configuration
 from .urls import UrlValidator
-from .api import EndpointUrl, Endpoint, APISpecification, OpenAPISpecification
+from .api import EndpointUrl, Endpoint, APISpecification, OpenAPISpecification, Operateur
 
 from typing import Optional, Type, TypeVar, Generic
 
@@ -86,8 +87,10 @@ class Client(ABC, Generic[Specification]):
         return self.endpoint(path).exists()
 
     def rest(self, endpoint_name: str, action: str, **kwargs):
-        endpoint = self.path(endpoint_name).endpoint.assert_exists()
-        return endpoint.actions[action].request(**kwargs)
+        operateur = self.path(endpoint_name).endpoint.assert_exists().actions[action]
+        return Request(self, operateur, **kwargs).handle()
+
+        # return endpoint.actions[action].request(**kwargs)
 
     def search(self, endpoint_name: str, **kwargs):
         if kwargs.get("id"):
@@ -97,6 +100,12 @@ class Client(ABC, Generic[Specification]):
     def describe(self, endpoint_name: str):
         endpoint = self.path(endpoint_name).endpoint.assert_exists()
         return endpoint
+
+    def post_request_callback(self, response: "Response"):
+        pass
+
+    def pre_request_callback(self):
+        pass
 
 
 class ClientWithAuth(Client):
@@ -167,8 +176,7 @@ class ClientWithAuth(Client):
         if cache_token:
             self.token = token
 
-        if not self.silent:
-            print(f"Connected to {self.url} as {self.username}")
+        logger.warning(f"Connected to {self.url} as {self.username}")
 
         return token
 
@@ -280,6 +288,106 @@ class ClientWithConfig(ClientWithAuth):
 
     delete_cache = clear_rest_cache
 
+    def pre_request_callback(self):
+        self.ensure_authenticated()
+
+    def post_request_callback(self, response: "Response"):
+        if response.status_code == 403 and '"Invalid token."' in response.text:
+            self.authenticate(cache_token=True, force=True)
+            return "retry"
+        return None
+
 
 class WebClient(ClientWithConfig):
     specification_class = OpenAPISpecification
+
+
+class Request:
+
+    client: "Client"
+    operateur: "Operateur"
+    trys = 0
+    max_retries = 2
+
+    def __init__(self, client: "Client", operateur: "Operateur", data=None, files=None, **url_arguments):
+        self.operateur = operateur
+        self.client = client
+        self.url_arguments = url_arguments
+        self.data = data
+        self.files = files
+        self.headers = self.client.headers.copy()
+
+    @property
+    def url(self):
+        return self.operateur.make_url(**self.url_arguments)
+
+    @property
+    def request_method(self):
+        return self.operateur.request_method
+
+    def get_data(self):
+        if self.files is not None:
+            return None
+        if isinstance(self.data, (dict, list)):
+            self.headers["Content-Type"] = "application/json"
+            return json.dumps(self.data)
+        return self.data
+
+    def get_files(self):
+        return self.files
+
+    def get_response(self) -> Response:
+        data = self.get_data()
+        files = self.get_files()
+        logger.debug(f"Sending a request with url={self.url}, headers={self.headers}")
+        r = self.request_method(
+            self.url,
+            stream=True,
+            headers=self.headers,
+            data=data,
+            files=files,
+        )
+        return r
+
+    def handle(self):
+        return self.handle_response(self.get_response())
+
+    def handle_success(self, response: Response):
+        response_data = json.loads(response.text)
+        if not isinstance(response_data, dict):
+            return response_data
+        next_url = response_data.get("next", None)
+        if next_url:
+            limit_offset = UrlValidator.get_limit_offset(next_url)
+            next_request = Request(self.client, self.operateur, self.data, self.files, **limit_offset)
+            return response_data["results"] + next_request.handle()
+
+        if "results" in response_data.keys():
+            return response_data["results"]
+        return response_data
+
+    def handle_response(self, response: Response):
+        action = self.client.post_request_callback(response)
+        if action:
+            if action == "retry":
+                self.trys += 1
+                return self.handle()
+            else:
+                raise NotImplementedError
+        if response and response.status_code in (200, 201):
+            return self.handle_success(response)
+        elif response and response.status_code == 204:
+            return
+        else:
+            self.raise_from_response(response)
+
+    def raise_from_response(self, response: Response):
+        # response.raise_for_status()
+
+        try:
+            message = json.loads(response.text)
+            message.pop("status_code", None)  # Get status code from response object instead
+            message = message.get("detail") or message  # Get details if available
+        except json.decoder.JSONDecodeError:
+            message = response.text
+        raise requests.HTTPError(response.status_code, self.url, message, response=response)

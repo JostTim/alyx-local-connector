@@ -1,5 +1,9 @@
+from logging import getLogger
+
 from ..utils import Singleton
 from ..web.clients import WebClient
+
+logger = getLogger(__name__)
 
 
 class Connector(metaclass=Singleton):
@@ -15,7 +19,15 @@ class Connector(metaclass=Singleton):
         return Connector(web_client.url, web_client.username)
 
     def search(self, endpoint="sessions", **kwargs):
-        action = "retrieve" if "id" in kwargs.keys() else "list"
+        action = "list"
+        if "id" in kwargs.keys():
+            if "retrieve" in self.web_client.endpoint(endpoint).actions.keys():
+                action = "retieve"
+            else:
+                logger.warning(
+                    f"Endpoint {endpoint} does not implement retieve. "
+                    "Specifying id will not work to select a specific item."
+                )
         return self.web_client.rest(endpoint, action, **kwargs)
 
 

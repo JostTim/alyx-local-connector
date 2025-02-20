@@ -14,7 +14,7 @@ from .urls import UrlValidator
 from typing import Any, Dict, Tuple, List, Optional, Protocol, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .clients import ClientWithAuth
+    from .clients import ClientWithAuth, Client
 
 logger = getLogger("alyx_connector.client")
 
@@ -180,7 +180,7 @@ class Endpoint:
 
 class Operateur:
 
-    def __init__(self, path: EndpointUrl, client: "ClientWithAuth", operation: Operation):
+    def __init__(self, path: EndpointUrl, client: "Client", operation: Operation):
         self.path = path
         self.client = client
         self.operation = operation
@@ -191,12 +191,19 @@ class Operateur:
         action_name = operation_id.split("_")[-1] if operation_id is not None else ""
         return action_name
 
-    def request(self, data=None, files=None, **kwargs):
-        request_method: RequestFunction = getattr(requests, self.operation.method.value)
+    @property
+    def request_method(self) -> RequestFunction:
+        return getattr(requests, self.operation.method.value)
+
+    def make_url(self, **kwargs):
         try:
-            url = self.path.make_url(**kwargs)
+            return self.path.make_url(**kwargs)
         except ValueError as e:
             raise ValueError(f"For the {self.action_name} action, " + str(e)) from e
+
+    def request(self, data=None, files=None, **kwargs):
+        request_method: RequestFunction = getattr(requests, self.operation.method.value)
+        url = self.make_url(**kwargs)
         return self.get_response(request_method, url, data=data, files=files)
 
     def get_response(self, request_method: RequestFunction, url: str, data=None, files=None):
