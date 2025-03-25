@@ -1,16 +1,33 @@
 from logging import getLogger
+from pandas import DataFrame, Series
+from sys import stdout
+from tqdm import tqdm
 
 from ..utils import Singleton
 from ..web.clients import WebClient
+
+from typing import overload, Optional, NoReturn
 
 logger = getLogger(__name__)
 
 
 class Connector(metaclass=Singleton):
 
-    def __init__(self, url=None, username=None):
+    _singleton_no_argument_only = True
 
-        self.web_client = WebClient(url=url, username=username)
+    def __init__(self, url=None, username=None, auto_authenticate=True, make_default=False):
+
+        self.web_client = WebClient(
+            url=url, username=username, auto_authenticate=auto_authenticate, make_default=make_default
+        )
+
+    @property
+    def username(self):
+        return self.web_client.username
+
+    @property
+    def url(self):
+        return self.web_client.url
 
     @staticmethod
     def setup(*args, **kwargs):
@@ -18,17 +35,121 @@ class Connector(metaclass=Singleton):
         web_client.config.current_user_config.make_all_default()
         return Connector(web_client.url, web_client.username)
 
-    def search(self, endpoint="sessions", **kwargs):
+    @overload
+    def search(self, endpoint=..., id: str = ..., **kwargs) -> Series: ...
+
+    @overload
+    def search(self, endpoint=..., id: None = ..., **kwargs) -> DataFrame: ...
+
+    def search(self, endpoint="sessions", id: Optional[str] = None, details=True, **kwargs):
+        """Search for items in a specified endpoint.
+
+        This method allows you to search for items in a given endpoint, with the option to retrieve details for a
+        specific item if an ID is provided and the endpoint supports retrieval.
+        If the endpoint does not support retrieval, a warning is logged when an ID is specified.
+
+        Args:
+            endpoint (str, optional): The endpoint to search in. Defaults to "sessions".
+            id (Optional[str], optional): The ID of the item to retrieve. If provided, the method will attempt to
+                retrieve the specific item if supported by the endpoint. Defaults to None.
+            details (bool, optional): Whether to include detailed aggregation in the results. Defaults to True.
+            **kwargs: Additional keyword arguments to pass to the search request.
+
+        Returns:
+            pandas.DataFrame or pandas.Series : A DataFrame or Series containing the search results.
+
+        Raises:
+            ValueError: If the search result is empty and details are requested.
+        """
         action = "list"
-        if "id" in kwargs.keys():
-            if "retrieve" in self.web_client.endpoint(endpoint).actions.keys():
-                action = "retieve"
-            else:
-                logger.warning(
-                    f"Endpoint {endpoint} does not implement retieve. "
-                    "Specifying id will not work to select a specific item."
+        endpoint_implements_retrieve = "retrieve" in self.web_client.endpoint(endpoint).actions.keys()
+
+        if id and endpoint_implements_retrieve:
+            action = "retrieve"
+            kwargs["id"] = id
+        elif id and not endpoint_implements_retrieve:
+            logger.warning(
+                f"Endpoint {endpoint} does not implement retrieve. "
+                "Specifying id will not work to select a specific item."
+            )
+
+        search_result = self.web_client.rest(endpoint, action, **kwargs)
+        search_result = self.raise_if_search_empty(search_result)
+
+        if details and not id and endpoint_implements_retrieve:
+            search_result = self.details_aggregation(search_result, endpoint)  # type: ignore
+
+        return self.results_to_pandas(search_result)
+
+    def raise_if_search_empty(self, search_result: dict[str, dict | str] | list[dict[str, dict | str]] | None):
+        if not search_result:
+            raise ValueError("This search provided no result")
+        return search_result
+
+    @overload
+    def results_to_pandas(self, request_result: None) -> NoReturn: ...
+
+    @overload
+    def results_to_pandas(self, request_result: dict[str, dict | str]) -> Series: ...
+
+    @overload
+    def results_to_pandas(self, request_result: list[dict[str, dict | str]]) -> DataFrame: ...
+
+    def results_to_pandas(self, request_result: dict[str, dict | str] | list[dict[str, dict | str]] | None):
+        """Converts the results from a request into a pandas DataFrame or Series.
+
+        This method takes a request result, which can be a list of dictionaries or a single dictionary,
+        and converts it into a pandas DataFrame or Series. If the input is a list, it returns a DataFrame.
+        If the input is a dictionary, it extracts the 'id' field and returns a Series with the remaining data.
+        If the input is neither a list nor a dictionary, it raises a NotImplementedError.
+
+        Args:
+            request_result (dict[str, dict | str] | list[dict[str, dict | str]] | None):
+                The result from a request, which can be a list of dictionaries, a single dictionary, or None.
+
+        Returns:
+            DataFrame or Series:
+                A pandas DataFrame if the input is a list, or a pandas Series if the input is a dictionary.
+
+        Raises:
+            TypeError:
+                If the 'id' field in the dictionary is not a string.
+            NotImplementedError:
+                If the input is neither a list nor a dictionary.
+        """
+        if isinstance(request_result, list):
+            return DataFrame(request_result)  # .set_index("id")
+        elif isinstance(request_result, dict):
+            id = request_result.pop("id", None)
+            if not isinstance(id, str):
+                raise TypeError(
+                    f"ID of a recieved object must be a string, but alyx server returned a {type(id)} - {id=}"
                 )
-        return self.web_client.rest(endpoint, action, **kwargs)
+            return Series(request_result, name=id)
+        else:
+            raise NotImplementedError(f"Type was not list or dict : {type(request_result)}")
+
+    def details_aggregation(
+        self, search_result: list[dict[str, dict | str]], endpoint: str
+    ) -> list[dict[str, dict | str]]:
+        """Aggregates detailed results from a list of search results by retrieving additional information
+        from a specified endpoint.
+
+        Args:
+            search_result (list[dict[str, dict | str]]): A list of dictionaries containing search results,
+            where each dictionary includes an 'id' key.
+            endpoint (str): The API endpoint from which to retrieve detailed information.
+
+        Returns:
+            list[dict[str, dict | str]]: A list of dictionaries containing detailed results retrieved
+            from the specified endpoint.
+        """
+        detailed_results = []
+        for result in tqdm(
+            search_result, total=len(search_result), delay=2, desc=f"Loading {endpoint} details", file=stdout
+        ):
+            detailed_results.append(self.web_client.rest(endpoint, "retrieve", id=result["id"]))
+        return detailed_results
 
 
 if __name__ == "__main__":

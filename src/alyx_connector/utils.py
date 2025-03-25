@@ -1,34 +1,30 @@
 from functools import wraps
 
 
-# def singleton(cls):
-#     instances = {}
-
-#     @wraps(cls)
-#     def getinstance(*args, **kwargs):
-#         if cls not in instances or kwargs.get("regen", False) is True:
-#             kwargs.pop("regen", None)
-#             instances[cls] = cls(*args, **kwargs)
-#         return instances[cls]
-
-#     return getinstance
-
-
 class Singleton(type):
     _instances = {}
 
     # we are going to redefine (override) what it means to "call" a class
     # as in ....  x = MyClass(1,2,3)
     def __call__(cls, *args, reinstanciate=False, **kwargs):
-        if cls not in cls._instances:
-            # we have not every built an instance before.  Build one now.
-            instance = super().__call__(*args, **kwargs)
-            cls._instances[cls] = instance
-        else:
-            instance = cls._instances[cls]
-            # here we are going to call the __init__ and maybe reinitialize.
-            if getattr(cls, "__allow_reinstanciation", True) and reinstanciate:
-                # if the class allows reinitialization, then do it
-                instance.__init__(*args, **kwargs)  # call the init again
 
-        return instance
+        if cls not in cls._instances:
+            # cls is instanciated for the first time
+            cls._instances[cls] = super().__call__(*args, **kwargs)
+            return cls._instances[cls]
+
+        if reinstanciate:
+            # cls is reinstanciated because it has been asked to
+            if getattr(cls, "_singleton_allow_reinstanciation", False):
+                # either self reinstanciating the same object if allowed by calling the init again
+                cls._instances[cls].__init__(*args, **kwargs)
+            else:
+                # or creating a new one cleanly
+                cls._instances[cls] = super().__call__(*args, **kwargs)
+
+        elif getattr(cls, "_singleton_no_argument_only", False) and (args or kwargs):
+            # cls is reinstanciated because it has been called with arguments
+            # and __singleton_no_argument_only flag exists in the file
+            cls._instances[cls] = super().__call__(*args, **kwargs)
+
+        return cls._instances[cls]

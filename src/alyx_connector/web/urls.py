@@ -1,6 +1,10 @@
 from urllib.parse import urlparse, urlunparse, urlsplit, parse_qs
 from typing import Optional
 
+from logging import getLogger
+
+logger = getLogger("alyx_connector.urls")
+
 
 class UrlValidator:
 
@@ -57,7 +61,7 @@ class UrlValidator:
                 url = "http://" + scheme_and_netloc[0]
             else:
                 url = "http://" + scheme_and_netloc[1]
-            print(f"corrected invalid url {input_url} into {url} asuming http protocol")
+            logger.debug(f"corrected invalid url {input_url} into {url} asuming http protocol")
         else:
             url = input_url
 
@@ -70,7 +74,7 @@ class UrlValidator:
         else:
             port = "80"
             host = host_and_port[0]
-            print(f"corrected url {input_url} missing port info into port 80 asuming http protocol is used")
+            logger.debug(f"corrected url {input_url} missing port info into port 80 asuming http protocol is used")
 
         validated_url = UrlValidator.build_url(protocol, host, port, original_url=input_url)
 

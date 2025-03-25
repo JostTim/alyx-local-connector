@@ -3,14 +3,13 @@ from requests.models import Response
 from datetime import timedelta
 from logging import getLogger
 from abc import ABC, abstractmethod
-
+from rich.prompt import Prompt
 
 from ..configuration import Configuration
 from .urls import UrlValidator
 from .api import EndpointUrl, Endpoint, APISpecification, OpenAPISpecification, Operateur
 
 from typing import Optional, Type, TypeVar, Generic
-
 
 Specification = TypeVar("Specification", bound=APISpecification)
 
@@ -180,11 +179,17 @@ class ClientWithAuth(Client):
 
         return token
 
+    login = authenticate
+
     def logout(self, *args, **kwargs):
         self._headers = self.get_initial_headers()
+        self.token = ""
+
+    def is_logged_in(self) -> bool:
+        return True if self.token else False
 
     def ask_password(self):
-        return input("Enter password :")
+        return Prompt.ask("Enter password :", password=True)
 
 
 class ClientWithConfig(ClientWithAuth):
@@ -197,9 +202,11 @@ class ClientWithConfig(ClientWithAuth):
         self,
         url: Optional[str] = None,
         username: Optional[str] = None,
+        *,
         auto_authenticate=True,
+        make_default=False,
     ):
-        self.select_user(url=url, username=username, auto_authenticate=auto_authenticate)
+        self.select_user(url=url, username=username, auto_authenticate=auto_authenticate, make_default=make_default)
 
     @property
     def username(self):
@@ -213,9 +220,7 @@ class ClientWithConfig(ClientWithAuth):
     def token(self):
         if not self.config.is_user_selected():
             self.raise_config_not_setup()
-        if self.config.token_exists():
-            return self.config.token
-        return ""  # No token
+        return self.config.token
 
     @token.setter
     def token(self, value):
@@ -266,13 +271,15 @@ class ClientWithConfig(ClientWithAuth):
         client = ClientWithConfig(url=config.url, username=config.username, auto_authenticate=auto_authenticate)
         return client
 
-    def select_user(self, url: Optional[str] = None, username: Optional[str] = None, *, auto_authenticate=True):
+    def select_user(
+        self, url: Optional[str] = None, username: Optional[str] = None, *, auto_authenticate=True, make_default=False
+    ):
         if url is None:
             if self.config and self.config.is_user_selected():
                 url = self.config.url
         else:
             url = UrlValidator.validate_url(url)
-        self.config.select_current_user_config(server_address=url, username=username, make_default=False)
+        self.config.select_current_user_config(server_address=url, username=username, make_default=make_default)
         self.url = self.config.url
         if auto_authenticate:
             # authenticate using config. If password is not set, it is prefereable to set it with setup_user
@@ -352,9 +359,13 @@ class Request:
     def handle(self):
         return self.handle_response(self.get_response())
 
-    def handle_success(self, response: Response):
+    def handle_success(self, response: Response) -> dict[str, dict | str] | list[dict[str, dict | str]]:
         response_data = json.loads(response.text)
         if not isinstance(response_data, dict):
+            if not isinstance(response_data, list):
+                raise NotImplementedError(
+                    f"Type of response data is {type(response_data)} - Response data : {response_data}"
+                )
             return response_data
         next_url = response_data.get("next", None)
         if next_url:
@@ -366,7 +377,7 @@ class Request:
             return response_data["results"]
         return response_data
 
-    def handle_response(self, response: Response):
+    def handle_response(self, response: Response) -> dict[str, dict | str] | list[dict[str, dict | str]] | None:
         action = self.client.post_request_callback(response)
         if action:
             if action == "retry":
@@ -377,7 +388,7 @@ class Request:
         if response and response.status_code in (200, 201):
             return self.handle_success(response)
         elif response and response.status_code == 204:
-            return
+            return None
         else:
             self.raise_from_response(response)
 

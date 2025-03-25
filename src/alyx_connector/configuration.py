@@ -100,11 +100,11 @@ class Configuration(Directory, metaclass=Singleton):
         self.current_user_config.local_data_location = value
 
     @property
-    def token(self):
+    def token(self) -> str | None:
         return self.current_user_config.token
 
     @token.setter
-    def token(self, value: dict):
+    def token(self, value: str | None):
         self.current_user_config.token = value
 
     def token_exists(self):
@@ -260,20 +260,35 @@ class Index(ConfigDict):
         return self.servers[server_address]
 
     def server(self, server_address: Optional[str] = None) -> "Server":
+
         if server_address is not None:
             if not self.server_exists(server_address):
                 return self.set_server(server_address)
-        if server_address is None:
+            return self.get_server(server_address)
+
+        else:  # server is None
             if self.default_server is None or self.index.config.force_prompt:
                 if self.index.config.silent:
                     raise ValueError("Cannot find the default alyx server as if has not been set")
                 server_address = Prompt.ask(
                     "Please enter the server address that you use to connect to alyx.",
-                    default="127.0.0.1" if self.default_server is None else self.default_server,
+                    default=self.default_server or "127.0.0.1",
                 )
-                return self.set_server(server_address)
-            server_address = self.default_server
-        return self.get_server(server_address)
+                if not server_address:
+                    raise ValueError(f"The server adress must be a valid string, you entered : {server_address}")
+                server_address = UrlValidator.validate_url(server_address)
+                if self.server_exists(server_address):
+                    server = self.get_server(server_address)
+                else:
+                    server = self.set_server(server_address)
+                if not server.is_default():
+                    yes = Confirm.ask(f"Make {server.name} the default server for future connections ?")
+                    if yes:
+                        server.make_default()
+                return server
+
+            else:
+                return self.get_server(self.default_server)
 
     def server_exists(self, server_address: str):
         if server_address not in self.servers.keys():
@@ -312,19 +327,56 @@ class Server(ConfigDict):
         return self.users[username]
 
     def user(self, username: Optional[str] = None) -> "User":
+        """Main interface for getting user using automatic resolution, and setting with prompt interface.
+        To set the user with code interface, use set_user.
+        Retrieve or set the user for the current session.
+
+        This method allows you to specify a username to retrieve or create a user.
+        If no username is provided, it will prompt the user for input if a default user is
+        not set or if forced by configuration.
+        The user can also be marked as the default for future connections.
+
+        Args:
+            username (Optional[str]): The username to retrieve or set.
+                If None, the method will handle prompting for a username.
+
+        Returns:
+            User: The User object associated with the specified or prompted username.
+
+        Raises:
+            ValueError: If the default user is not set and the method is in silent mode,
+                or if the entered username is invalid.
+        """
         if username is not None:
             if not self.user_exists(username):
                 return self.set_user(username)
-        if username is None:
+            return self.get_user(username)
+
+        else:  # user is None
+
             if self.default_user is None or self.index.config.force_prompt:
                 if self.index.config.silent:
                     raise ValueError(
                         "Cannot find the default alyx user for " f"the server {self.name} as if has not been set"
                     )
-                username = Prompt.ask(f"Please enter the username that you use to connect to {self.name}")
-                return self.set_user(username)
-            username = self.default_user
-        return self.get_user(username)
+                username = Prompt.ask(
+                    f"Please enter the username that you use to connect to {self.name}", default=self.default_user
+                )
+                if not username:
+                    raise ValueError(f"Username must be a valid string, you entered : {username}")
+                if self.user_exists(username):
+                    user = self.get_user(username)
+                else:
+                    user = self.set_user(username)
+                if not user.is_default():
+                    yes = Confirm.ask(
+                        f"Make {user.name} the default user for next connections to the server {self.name}?"
+                    )
+                    if yes:
+                        user.make_default()
+                return user
+            else:
+                return self.get_user(self.default_user)
 
     def user_exists(self, username: str):
         if username not in self.users.keys():
@@ -388,11 +440,11 @@ class User(ConfigDict):
     @property
     def token(self) -> str | None:
         if "TOKEN" not in self.keys():
-            self["TOKEN"] = {}
+            self["TOKEN"] = None
         return self["TOKEN"]
 
     @token.setter
-    def token(self, value: dict):
+    def token(self, value: str | None):
         self["TOKEN"] = value
 
     def token_exists(self):

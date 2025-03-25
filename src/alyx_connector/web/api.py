@@ -39,6 +39,7 @@ class OpenAPISpecification(APISpecification, Specification):
     @staticmethod
     def from_url(url) -> "OpenAPISpecification":
         logger = getLogger()
+        logger.propagate = True
         try:
             with filter_message(logger, "Implicit type assignment: schema does not contain 'type' property"):
                 specification = parse_openapi_schema(url)
