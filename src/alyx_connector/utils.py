@@ -28,3 +28,9 @@ class Singleton(type):
             cls._instances[cls] = super().__call__(*args, **kwargs)
 
         return cls._instances[cls]
+
+
+class Bunch(dict):
+    def __init__(self, *args, **kwargs):
+        super(Bunch, self).__init__(*args, **kwargs)
+        self.__dict__ = self
