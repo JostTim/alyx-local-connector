@@ -1,5 +1,8 @@
 from enum import EnumMeta as _EnumMeta, Enum as _EnumParent, _EnumDict
-from re import compile
+from re import compile as compile_expression, Pattern
+from pathlib import Path
+
+from typing import overload, Any
 
 
 class _NoAliasEnumMeta(_EnumMeta):
@@ -72,7 +75,7 @@ class Enum(_EnumParent, metaclass=_NoAliasEnumMeta):
 
 class Resolver:
 
-    bracket_group = compile(r"{{(.*?)}}")
+    bracket_group = compile_expression(r"{{(.*?)}}")
 
     @classmethod
     def to_string(cls, variable: str | Enum) -> str:
@@ -85,82 +88,154 @@ class Resolver:
 
         return value
 
+    @overload
     @classmethod
-    def parse(cls, expression: str | Enum) -> str:
+    def parse(cls, expression: str | Enum) -> Pattern: ...
+
+    @overload
+    @classmethod
+    def parse(cls, expression: str | Enum, compile=False) -> str: ...
+
+    @overload
+    @classmethod
+    def parse(cls, expression: str | Enum, compile=True) -> Pattern: ...
+
+    @classmethod
+    def parse(cls, expression: str | Enum, compile: bool = True) -> str | Pattern:
 
         expression = cls.to_string(expression)
 
         results = cls.bracket_group.findall(expression)
         if not results:
-            return expression
+            return expression if not compile else compile_expression(expression)
 
         evaluated_results = [eval(result) for result in results]
 
-        resolved_results = [cls.parse(cls.to_string(result)) for result in evaluated_results]
+        resolved_results = [cls.parse(cls.to_string(result), compile=False) for result in evaluated_results]
 
         result_iterator = iter(resolved_results)
-        return cls.bracket_group.sub(lambda _: next(result_iterator), expression)
+        expression = cls.bracket_group.sub(lambda _: next(result_iterator), expression)
+        return expression if not compile else compile_expression(expression)
 
     @classmethod
     def named(cls, enumeration: Enum) -> str:
-        if not isinstance(enumeration, NamedPattern):
+        if not isinstance(enumeration, (Part, NamedExp)):
             return enumeration.value
 
         return f"(?P<{enumeration.name}>{enumeration.value})"
 
 
-class NamedPattern(Enum):
+class Exp(Enum):
+    sep = r"(?:/|\\)"  # Exp.separator
+    double_sep = r"(?://|\\\\)"
+    relaxed_sep = r"(?:/|\\|_)"
+
+    lab = r"\w+"
+    unallowed_path_characters = r"<>:\"|?\*"
+    slashes = r"\\/"
+    dot = r"\."
+    path_character = r"[^{{Exp.slashes}}{{Exp.unallowed_path_characters}}]"
+    path_character_no_dot = r"[^{{Exp.dot}}{{Exp.slashes}}{{Exp.unallowed_path_characters}}]"
+    path_character_with_slash = r"[^{{Exp.unallowed_path_characters}}]"
+
+
+class NamedExp(Enum):
+    drive = r"(?:^[a-zA-Z]:{{Exp.sep}})|(?:{{Exp.double_sep}}{{Exp.path_character}}+{{Exp.sep}})"
+
+
+class Part(Enum):
     # Components of a filename :
-    object = r"[^\.\\/<>:\"|?\*]+"
-    attribute = r"[^\.\\/<>:\"|?\*]+"
-    extra = r"[^\\/<>:\"|?\*]+"
-    extension = r"\w+"
+    object = r"(?:.)?{{Exp.path_character_no_dot}}+"
+    attribute = r"{{Exp.path_character_no_dot}}+"
+    extra = r"{{Exp.path_character}}+"
+    extension = r"(?:\w|-)+"
 
     # Components of a session collection path
-    collection = r"[^<>:\"|?\*]+?"
-    revision = r"[^\\/<>:\"|?\*]+"
+    collection = r"{{Exp.path_character_with_slash}}+?"
+    revision = r"{{Exp.path_character}}+"
 
     # Components of a session UID path
-    subject = r"[^\\/<>:\"|?\*]+"
+    subject = r"{{Exp.path_character}}+"
     date = r"\d{4}-\d{2}-\d{2}"
     number = r"\d{1,3}"
 
     # Other components upstream of the session UID path
-    lab = r"\w+"
-    root = r"^[^<>:\"|?\*]+?"
+    root = r"{{NamedExp.drive}}?{{Exp.path_character_with_slash}}*?"
 
 
-class PathPattern(Enum):
-    separator = r"(?:/|\\)"
+class Component(Enum):
 
     filename = (
-        r"{{NamedPattern.object}}"
-        r"(?:(?:\.{{NamedPattern.attribute}})?"
-        r"(?:\.{{NamedPattern.extra}})*\."
-        r"{{NamedPattern.extension}}?)?$"
+        r"{{Part.object}}"
+        r"(?:(?:{{Exp.dot}}{{Part.attribute}})?"
+        r"(?:{{Exp.dot}}{{Part.extra}})*{{Exp.dot}}"
+        r"{{Part.extension}}?)?$"
     )
+    collection_subpath = r"(?:{{Part.collection}}{{Exp.sep}})?(?:#{{Part.revision}}#{{Exp.sep}})?"
+    session_name = r"{{Part.subject}}{{Exp.sep}}{{Part.date}}{{Exp.sep}}{{Part.number}}"
+
+    internal_path = r"{{Component.collection_subpath}}{{Component.filename}}"
+    session_path = r"{{Part.root}}{{Exp.sep}}{{Component.session_name}}"
+
+    session_folders = r"{{Component.session_name}}{{Exp.sep}}{{Component.collection_subpath}}"
+    relative_path = r"{{Component.session_name}}{{Exp.sep}}{{Component.internal_path}}"
+
+    fullpath = r"{{Component.session_path}}{{Exp.sep}}{{Component.internal_path}}"
+    session_alias = r"{{Part.subject}}{{Exp.relaxed_sep}}{{Part.date}}{{Exp.relaxed_sep}}{{Part.number}}"
 
 
 class Expressions(Enum):
-    separator = Resolver.parse(PathPattern.separator)
+    sep = Resolver.parse(Exp.sep)
+    drive = Resolver.parse(NamedExp.drive)
 
     # Components of a filename :
-    object = Resolver.parse(NamedPattern.object)
-    attribute = Resolver.parse(NamedPattern.attribute)
-    extra = Resolver.parse(NamedPattern.extra)
-    extension = Resolver.parse(NamedPattern.extension)
+    object = Resolver.parse(Part.object)
+    attribute = Resolver.parse(Part.attribute)
+    extra = Resolver.parse(Part.extra)
+    extension = Resolver.parse(Part.extension)
 
     # Components of a session collection path
-    collection = Resolver.parse(NamedPattern.collection)
-    revision = Resolver.parse(NamedPattern.revision)
+    collection = Resolver.parse(Part.collection)
+    revision = Resolver.parse(Part.revision)
 
     # Components of a session UID path
-    subject = Resolver.parse(NamedPattern.subject)
-    date = Resolver.parse(NamedPattern.date)
-    number = Resolver.parse(NamedPattern.number)
+    subject = Resolver.parse(Part.subject)
+    date = Resolver.parse(Part.date)
+    number = Resolver.parse(Part.number)
 
     # Other components upstream of the session UID path
-    lab = Resolver.parse(NamedPattern.lab)
-    root = Resolver.parse(NamedPattern.root)
+    lab = Resolver.parse(Exp.lab)
+    root = Resolver.parse(Part.root)
 
-    filename = Resolver.parse(PathPattern.filename)
+    # Path components
+    filename = Resolver.parse(Component.filename)
+    collection_subpath = Resolver.parse(Component.collection_subpath)
+    session_name = Resolver.parse(Component.session_name)
+
+    # Path larger parts
+    internal_path = Resolver.parse(Component.internal_path)
+    session_path = Resolver.parse(Component.session_path)
+    session_folders = Resolver.parse(Component.session_folders)
+    relative_path = Resolver.parse(Component.relative_path)
+    fullpath = Resolver.parse(Component.fullpath)
+
+    # Usefull
+    session_alias = Resolver.parse(Component.session_alias)
+
+
+class Matcher:
+
+    @classmethod
+    def search(cls, pattern: Expressions | str, string: str | Path) -> dict:
+        if isinstance(pattern, str):
+            pattern_enum: Expressions | None = getattr(Expressions, pattern, None)
+            if pattern_enum is None:
+                raise AttributeError(f"Expressions has no patern defined for the name {pattern}")
+        else:
+            pattern_enum = pattern
+        if isinstance(string, Path):
+            string = str(string)
+        expression_name = pattern_enum.name
+        expression_patern: Pattern = pattern_enum.value
+        match = expression_patern.search(string)
+        return match.groupdict() if match is not None else {}
