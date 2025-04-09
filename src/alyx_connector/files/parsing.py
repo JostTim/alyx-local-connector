@@ -3,6 +3,7 @@ from re import split
 from uuid import UUID as OriginalUUID
 from datetime import datetime
 from pandas import Series
+from copy import copy
 
 from .expressions import Part, Matcher
 
@@ -48,6 +49,9 @@ class File:
         if any([char in variable for char in self._unallowed_chars]):
             raise ValueError(f"A path cannot contain any of these characters {self._unallowed_chars}")
 
+    def copy(self) -> "File":
+        return copy(self)
+
     def __new__(cls, path: Optional[str | Path] = None, *args, **kwargs: Optional[str | Path]):
         if path is None and not kwargs:
             return super().__new__(cls)
@@ -57,7 +61,7 @@ class File:
         return cls.from_parts(*args, **kwargs)
 
     @classmethod
-    def from_parts(cls, **kwargs: Optional[str | Path]):
+    def from_parts(cls, **kwargs: Optional[str | Path]) -> "File":
         obj = cls()
         for partname, partvalue in kwargs.items():
             if partname == "drive":
@@ -67,7 +71,7 @@ class File:
         return obj
 
     @classmethod
-    def from_path(cls, fullpath: str | Path, pattern="fullpath"):
+    def from_path(cls, fullpath: str | Path, pattern="fullpath") -> "File":
         parts = Matcher.search(pattern, fullpath)
         return cls.from_parts(**parts)
 
@@ -190,6 +194,18 @@ class File:
         if "." in str(attribute):
             raise ValueError("attribute must not contain a `.`")
         self._attribute = attribute if attribute else None
+
+    @property
+    def dataset_type(self) -> str:
+        if self.object is None:
+            raise ValueError("Cannot compute the dataset_type if object is None")
+        return f"{self.object}.{self.attribute}" if self.attribute else self.object
+
+    @property
+    def is_dataset_type_valid(self) -> bool:
+        if self.object is None:
+            raise ValueError("Cannot compute the dataset_type if object is None")
+        return False if not self.attribute else True
 
     @property
     def extra(self) -> Optional[str]:
@@ -394,3 +410,20 @@ class File:
         Dromedize object and attribute
         """
         raise NotImplementedError("")
+
+    def to_dict(self) -> dict:
+        return dict(
+            root=self.root,
+            subject=self.subject,
+            date=self.date,
+            number=self.number,
+            collection=self.collection,
+            revision=self.revision,
+            object=self.object,
+            attribute=self.attribute,
+            extra=self.extra,
+            extension=self.extension,
+        )
+
+    def to_series(self) -> Series:
+        return Series(self.to_dict())

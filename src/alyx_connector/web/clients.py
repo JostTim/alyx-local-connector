@@ -1,15 +1,18 @@
 import requests, json
 from requests.models import Response
+from requests import HTTPError
 from datetime import timedelta
 from logging import getLogger
 from abc import ABC, abstractmethod
 from rich.prompt import Prompt
+from sys import stdout
+from tqdm import tqdm
 
 from ..configuration import Configuration
 from .urls import UrlValidator
-from .api import EndpointUrl, Endpoint, APISpecification, OpenAPISpecification, Operateur
+from .api import EndpointUrl, Endpoint, APISpecification, OpenAPISpecification, Request, Operateur
 
-from typing import Optional, Type, TypeVar, Generic
+from typing import Optional, Type, TypeVar, Generic, Literal, List, Dict
 
 Specification = TypeVar("Specification", bound=APISpecification)
 
@@ -85,16 +88,139 @@ class Client(ABC, Generic[Specification]):
     def endpoint_exists(self, path: str) -> bool:
         return self.endpoint(path).exists()
 
-    def rest(self, endpoint_name: str, action: str, **kwargs):
+    def rest(
+        self,
+        endpoint_name: str,
+        action: Literal["list", "retrieve", "update", "create", "destroy"],
+        timeout=1000,
+        **kwargs,
+    ):
         operateur = self.path(endpoint_name).endpoint.assert_exists().actions[action]
-        return Request(self, operateur, **kwargs).handle()
+        return Request(self, operateur, timeout=timeout, **kwargs).handle()
 
         # return endpoint.actions[action].request(**kwargs)
 
-    def search(self, endpoint_name: str, **kwargs):
-        if kwargs.get("id"):
-            return self.rest(endpoint_name, "retrieve", **kwargs)
-        return self.rest(endpoint_name, "list", **kwargs)
+    # def search(self, endpoint_name: str, **kwargs):
+    #     if kwargs.get("id"):
+    #         return self.rest(endpoint_name, "retrieve", **kwargs)
+    #     return self.rest(endpoint_name, "list", **kwargs)
+
+    def search(self, *, endpoint: str, details=True, **kwargs):
+        """Search for items in a specified endpoint.
+
+        This method allows you to search for items in a given endpoint, with the option to retrieve details for a
+        specific item if an ID is provided and the endpoint supports retrieval.
+        If the endpoint does not support retrieval, a warning is logged when an ID is specified.
+
+        Args:
+            endpoint (str, optional): The endpoint to search in. Defaults to "sessions".
+            id (Optional[str], optional): The ID of the item to retrieve. If provided, the method will attempt to
+                retrieve the specific item if supported by the endpoint. Defaults to None.
+            details (bool, optional): Whether to include detailed aggregation in the results. Defaults to True.
+            **kwargs: Additional keyword arguments to pass to the search request.
+
+        Returns:
+            pandas.DataFrame or pandas.Series : A DataFrame or Series containing the search results.
+
+        Raises:
+            ValueError: If the search result is empty and details are requested.
+        """
+
+        # no argument for the given action is present, we assume the user wanted to list instead.
+
+        if self.endpoint(endpoint).implements_retrieve:
+
+            if self.verify_required_args_present(self.endpoint(endpoint).action("retrieve"), **kwargs):
+                # if the required arguments for retrieve are present, we do the retrieve here.
+                return self.retrieve(endpoint=endpoint, details=details, **kwargs)
+        # else, we assume the user wanted to list instead, after here
+
+        if "id" in kwargs.keys() or "name" in kwargs.keys():
+            # just in case, we warn the user if she/he supplied id or name, and the endpoint doesn't implement retrieve
+            logger.warning(
+                f"Endpoint {endpoint} does not implement retrieve. "
+                "You specified id or name but it will not work to select a specific item. Listing instead"
+            )
+
+        return self.list(endpoint=endpoint, details=details, **kwargs)
+
+    def verify_required_args_present(self, operateur: "Operateur", raises=False, **kwargs):
+
+        required_params_present = {
+            param_name: bool(kwargs.get(param_name, None)) for param_name in operateur.required_parameters.keys()
+        }
+
+        if not any(required_params_present.values()):
+            # no single required argument is present, we return False if raise is False, else we raise
+            if not raises:
+                return False
+            missing_params = ", ".join([param_name for param_name in required_params_present.keys()])
+            raise ValueError(
+                f"Required arguments {missing_params} are required for {operateur.action_name} "
+                f"on {operateur.path} and are missing"
+            )
+        elif not all(required_params_present.values()):
+            # some required arguments for the action are present, but not all the required ones,
+            # so we raise to inform the user that the action request cannot be done and that she/he should correct
+            missing_params = ", ".join(
+                [param_name for param_name, present in required_params_present.items() if not present]
+            )
+            raise ValueError(
+                f"Arguments {missing_params} are required for {operateur.action_name} on {operateur.path} "
+                "and are are missing."
+            )
+
+        return True
+
+    def list(self, *, endpoint: str, details=True, **kwargs):
+        results = self.rest(endpoint, "list", **kwargs)
+        results = [] if not results else results
+        return self.details_aggregation(results, endpoint) if details else results  # type: ignore
+
+    def create(self, *, endpoint: str, data: dict, **kwargs):
+        result = self.rest(endpoint, "create", data=data, **kwargs)
+        return result
+
+    def retrieve(self, *, endpoint: str, **kwargs):
+        self.verify_required_args_present(self.endpoint(endpoint).action("retrieve"), raises=True, **kwargs)
+        result = self.rest(endpoint, "retrieve", **kwargs)
+        return result if result else {}
+
+    def update(self, *, endpoint: str, data: dict, **kwargs):
+        self.verify_required_args_present(self.endpoint(endpoint).action("update"), raises=True, **kwargs)
+        result = self.rest(endpoint, "update", data=data, **kwargs)
+        return result
+
+    def destroy(self, *, endpoint: str, **kwargs):
+        self.verify_required_args_present(self.endpoint(endpoint).action("destroy"), raises=True, **kwargs)
+        result = self.rest(endpoint, "destroy", **kwargs)
+        return result
+
+    def details_aggregation(
+        self, search_result: List[Dict[str, dict | str]], endpoint: str
+    ) -> List[Dict[str, dict | str]]:
+        """Aggregates detailed results from a list of search results by retrieving additional information
+        from a specified endpoint.
+
+        Args:
+            search_result (list[dict[str, dict | str]]): A list of dictionaries containing search results,
+            where each dictionary includes an 'id' key.
+            endpoint (str): The API endpoint from which to retrieve detailed information.
+
+        Returns:
+            list[dict[str, dict | str]]: A list of dictionaries containing detailed results retrieved
+            from the specified endpoint.
+        """
+        required_params = [
+            param_name for param_name in self.endpoint(endpoint).action("retrieve").required_parameters.keys()
+        ]
+        detailed_results = []
+        for result in tqdm(
+            search_result, total=len(search_result), delay=2, desc=f"Loading {endpoint} details", file=stdout
+        ):
+            retrieve_params = {name: result[name] for name in required_params}
+            detailed_results.append(self.rest(endpoint, "retrieve", **retrieve_params))
+        return detailed_results
 
     def describe(self, endpoint_name: str):
         endpoint = self.path(endpoint_name).endpoint.assert_exists()
@@ -105,6 +231,16 @@ class Client(ABC, Generic[Specification]):
 
     def pre_request_callback(self):
         pass
+
+    def is_up(self) -> bool:
+        try:
+            return bool(self.rest("server-info", "retrieve"))
+        except ConnectionError:
+            return False
+        except HTTPError as error:
+            if error.response.status_code in ["502", "504"]:
+                return False
+            raise NotImplementedError(f"Error catching code : {error.response.status_code} with {error.response}")
 
 
 class ClientWithAuth(Client):
@@ -307,98 +443,3 @@ class ClientWithConfig(ClientWithAuth):
 
 class WebClient(ClientWithConfig):
     specification_class = OpenAPISpecification
-
-
-class Request:
-
-    client: "Client"
-    operateur: "Operateur"
-    trys = 0
-    max_retries = 2
-
-    def __init__(self, client: "Client", operateur: "Operateur", data=None, files=None, **url_arguments):
-        self.operateur = operateur
-        self.client = client
-        self.url_arguments = url_arguments
-        self.data = data
-        self.files = files
-        self.headers = self.client.headers.copy()
-
-    @property
-    def url(self):
-        return self.operateur.make_url(**self.url_arguments)
-
-    @property
-    def request_method(self):
-        return self.operateur.request_method
-
-    def get_data(self):
-        if self.files is not None:
-            return None
-        if isinstance(self.data, (dict, list)):
-            self.headers["Content-Type"] = "application/json"
-            return json.dumps(self.data)
-        return self.data
-
-    def get_files(self):
-        return self.files
-
-    def get_response(self) -> Response:
-        data = self.get_data()
-        files = self.get_files()
-        logger.debug(f"Sending a request with url={self.url}, headers={self.headers}")
-        r = self.request_method(
-            self.url,
-            stream=True,
-            headers=self.headers,
-            data=data,
-            files=files,
-        )
-        return r
-
-    def handle(self):
-        return self.handle_response(self.get_response())
-
-    def handle_success(self, response: Response) -> dict[str, dict | str] | list[dict[str, dict | str]]:
-        response_data = json.loads(response.text)
-        if not isinstance(response_data, dict):
-            if not isinstance(response_data, list):
-                raise NotImplementedError(
-                    f"Type of response data is {type(response_data)} - Response data : {response_data}"
-                )
-            return response_data
-        next_url = response_data.get("next", None)
-        if next_url:
-            limit_offset = UrlValidator.get_limit_offset(next_url)
-            next_request = Request(self.client, self.operateur, self.data, self.files, **limit_offset)
-            return response_data["results"] + next_request.handle()
-
-        if "results" in response_data.keys():
-            return response_data["results"]
-        return response_data
-
-    def handle_response(self, response: Response) -> dict[str, dict | str] | list[dict[str, dict | str]] | None:
-        action = self.client.post_request_callback(response)
-        if action:
-            if action == "retry":
-                self.trys += 1
-                return self.handle()
-            else:
-                raise NotImplementedError
-        if response and response.status_code in (200, 201):
-            return self.handle_success(response)
-        elif response and response.status_code == 204:
-            return None
-        else:
-            self.raise_from_response(response)
-
-    def raise_from_response(self, response: Response):
-        # response.raise_for_status()
-
-        try:
-            message = json.loads(response.text)
-            message.pop("status_code", None)  # Get status code from response object instead
-            message = message.get("detail") or message  # Get details if available
-        except json.decoder.JSONDecodeError:
-            message = response.text
-        raise requests.HTTPError(response.status_code, self.url, message, response=response)

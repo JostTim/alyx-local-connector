@@ -38,7 +38,9 @@ source = "file"
 path = "src/alyx_connector/__init__.py"
 
 [tool.pdm.dev-dependencies]
-dev = ["ipykernel>=6.29.5"]
+dev = [
+    "-e file:///C:/Users/tjostmou/Documents/Python/__packages__/ONE-registrator#egg=alyx-registrator",
+]
 [tool.flake8]
 exclude = [
     ".git",
@@ -54,3 +56,8 @@ exclude = [
 ]
 ignore = ["W504", "W503", "E266"]
 max-line-length = 99
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.29.5",
+]

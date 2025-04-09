@@ -45,9 +45,9 @@ class OpenAPISpecification(APISpecification, Specification):
                 specification = parse_openapi_schema(url)
             specification.paths_dict = {path.url: path for path in specification.paths}  # type: ignore
             return specification  # type: ignore
-        except ParserError:
+        except ParserError as e:
             raise ConnectionError(
-                f"Can't connect to {url}.\n" + "Check your internet connections and Alyx database firewall"
+                f"Can't connect to {url}.\n" + f"Check your internet connections and Alyx database firewall. Error {e}"
             )
 
 
@@ -56,6 +56,7 @@ class RequestFunction(Protocol):
         self,
         url: str,
         *,
+        timeout: Optional[int] = None,
         stream: Optional[bool] = True,
         headers: Optional[dict] = None,
         data: Optional[Any] = None,
@@ -162,13 +163,22 @@ class Endpoint:
         return [EndpointUrl(key, self.client) for key in self.client.schema.paths_dict.keys() if pattern.match(key)]
 
     @property
-    def actions(self):
+    def actions(self) -> Dict[str, "Operateur"]:
         return {
             operation.operation_id.split("_")[-1]: Operateur(route, self.client, operation)
             for route in self.routes
             for operation in self.client.schema.paths_dict[route].operations
             if operation.operation_id is not None
         }
+
+    @property
+    def implements_retrieve(self):
+        if "retrieve" in self.actions.keys():
+            return True
+        return False
+
+    def action(self, action_name: str):
+        return self.actions[action_name]
 
     def assert_exists(self):
         if not self.exists():
@@ -189,12 +199,18 @@ class Operateur:
     @property
     def action_name(self):
         operation_id = self.operation.operation_id
-        action_name = operation_id.split("_")[-1] if operation_id is not None else ""
-        return action_name
+        if not operation_id:
+            return ""
+        names = operation_id.split("_")
+        return names[-1]
+
+    @property
+    def rest_operation_name(self):
+        return self.operation.method.value
 
     @property
     def request_method(self) -> RequestFunction:
-        return getattr(requests, self.operation.method.value)
+        return getattr(requests, self.rest_operation_name)
 
     def make_url(self, **kwargs):
         try:
@@ -202,12 +218,22 @@ class Operateur:
         except ValueError as e:
             raise ValueError(f"For the {self.action_name} action, " + str(e)) from e
 
-    def request(self, data=None, files=None, **kwargs):
+    @property
+    def parameters(self):
+        return {param.name: param for param in self.operation.parameters}
+
+    @property
+    def required_parameters(self):
+        return {param.name: param for param in self.operation.parameters if param.required}
+
+    def request(self, data=None, files=None, timeout=3000, **kwargs):
+        raise DeprecationWarning("This function is deprecated. Use the Request class instead.")
         request_method: RequestFunction = getattr(requests, self.operation.method.value)
         url = self.make_url(**kwargs)
-        return self.get_response(request_method, url, data=data, files=files)
+        return self.get_response(request_method, url, data=data, files=files, timeout=timeout)
 
-    def get_response(self, request_method: RequestFunction, url: str, data=None, files=None):
+    def get_response(self, request_method: RequestFunction, url: str, data=None, files=None, timeout=3000):
+        raise DeprecationWarning("This function is deprecated. Use the Request class instead.")
         self.client.ensure_authenticated()
 
         headers = self.client.headers.copy()
@@ -215,13 +241,7 @@ class Operateur:
         if files is None:
             data = json.dumps(data) if isinstance(data, dict) or isinstance(data, list) else data
             headers["Content-Type"] = "application/json"
-        r = request_method(
-            url,
-            stream=True,
-            headers=headers,
-            data=data,
-            files=files,
-        )
+        r = request_method(url, stream=True, headers=headers, data=data, files=files, timeout=timeout)
         if r and r.status_code in (200, 201):
             return json.loads(r.text)
         elif r and r.status_code == 204:
@@ -231,7 +251,7 @@ class Operateur:
             # Log out in order to flush stale token.  At this point we no longer have the password
             # but if the user re-instantiates with a password arg it will request a new token.
             self.client.authenticate(cache_token=True, force=True)
-            return self.get_response(request_method, url, data=data, files=files)
+            return self.get_response(request_method, url, data=data, files=files, timeout=timeout)
         else:
             logger.debug("Response text: " + r.text)
             try:
@@ -247,3 +267,101 @@ class Operateur:
 
     def describe(self):
         return self.client.schema.paths_dict[self.path]
+
+
+class Request:
+
+    client: "Client"
+    operateur: "Operateur"
+    trys = 0
+    max_retries = 2
+
+    def __init__(self, client: "Client", operateur: "Operateur", data=None, files=None, timeout=3000, **url_arguments):
+        self.operateur = operateur
+        self.client = client
+        self.url_arguments = url_arguments
+        self.data = data
+        self.files = files
+        self.headers = self.client.headers.copy()
+        self.timeout = timeout
+
+        if self.operateur.rest_operation_name in ["post", "put"] and self.data is None:
+            raise ValueError(
+                "To create (a.k.a POST) or update (a.k.a PUT) a new element, "
+                "you need to supply the fields with the data argument"
+            )
+
+    @property
+    def url(self):
+        return self.operateur.make_url(**self.url_arguments)
+
+    @property
+    def request_method(self):
+        return self.operateur.request_method
+
+    def get_data(self):
+        if self.files is not None:
+            return None
+        if isinstance(self.data, (dict, list)):
+            self.headers["Content-Type"] = "application/json"
+            return json.dumps(self.data)
+        return self.data
+
+    def get_files(self):
+        return self.files
+
+    def get_response(self) -> Response:
+        data = self.get_data()
+        files = self.get_files()
+        logger.debug(f"Sending a request with url={self.url}, headers={self.headers}")
+        r = self.request_method(
+            self.url, stream=True, headers=self.headers, data=data, files=files, timeout=self.timeout
+        )
+        return r
+
+    def handle(self):
+        return self.handle_response(self.get_response())
+
+    def handle_success(self, response: Response) -> dict[str, dict | str] | list[dict[str, dict | str]]:
+        response_data = json.loads(response.text)
+        if not isinstance(response_data, dict):
+            if not isinstance(response_data, list):
+                raise NotImplementedError(
+                    f"Type of response data is {type(response_data)} - Response data : {response_data}"
+                )
+            return response_data
+        next_url = response_data.get("next", None)
+        if next_url:
+            limit_offset = UrlValidator.get_limit_offset(next_url)
+            next_request = Request(self.client, self.operateur, self.data, self.files, self.timeout, **limit_offset)
+            return response_data["results"] + next_request.handle()
+
+        if "results" in response_data.keys():
+            return response_data["results"]
+        return response_data
+
+    def handle_response(self, response: Response) -> dict[str, dict | str] | list[dict[str, dict | str]] | None:
+        action = self.client.post_request_callback(response)
+        if action:
+            if action == "retry":
+                self.trys += 1
+                return self.handle()
+            else:
+                raise NotImplementedError
+        if response and response.status_code in (200, 201):
+            return self.handle_success(response)
+        elif response and response.status_code == 204:
+            return None
+        else:
+            self.raise_from_response(response)
+
+    def raise_from_response(self, response: Response):
+        # response.raise_for_status()
+
+        try:
+            message = json.loads(response.text)
+            message.pop("status_code", None)  # Get status code from response object instead
+            message = message.get("detail") or message  # Get details if available
+        except json.decoder.JSONDecodeError:
+            message = response.text
+        raise requests.HTTPError(response.status_code, self.url, message, response=response)

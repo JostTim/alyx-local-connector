@@ -35,51 +35,57 @@ class Connector(metaclass=Singleton):
         web_client.config.current_user_config.make_all_default()
         return Connector(web_client.url, web_client.username)
 
-    @overload
-    def search(self, endpoint=..., id: str = ..., **kwargs) -> Series: ...
-
-    @overload
-    def search(self, endpoint=..., id: None = ..., **kwargs) -> DataFrame: ...
-
-    def search(self, endpoint="sessions", id: Optional[str] = None, details=True, **kwargs):
-        """Search for items in a specified endpoint.
-
-        This method allows you to search for items in a given endpoint, with the option to retrieve details for a
-        specific item if an ID is provided and the endpoint supports retrieval.
-        If the endpoint does not support retrieval, a warning is logged when an ID is specified.
-
-        Args:
-            endpoint (str, optional): The endpoint to search in. Defaults to "sessions".
-            id (Optional[str], optional): The ID of the item to retrieve. If provided, the method will attempt to
-                retrieve the specific item if supported by the endpoint. Defaults to None.
-            details (bool, optional): Whether to include detailed aggregation in the results. Defaults to True.
-            **kwargs: Additional keyword arguments to pass to the search request.
-
-        Returns:
-            pandas.DataFrame or pandas.Series : A DataFrame or Series containing the search results.
-
-        Raises:
-            ValueError: If the search result is empty and details are requested.
-        """
-        action = "list"
-        endpoint_implements_retrieve = "retrieve" in self.web_client.endpoint(endpoint).actions.keys()
-
-        if id and endpoint_implements_retrieve:
-            action = "retrieve"
-            kwargs["id"] = id
-        elif id and not endpoint_implements_retrieve:
-            logger.warning(
-                f"Endpoint {endpoint} does not implement retrieve. "
-                "Specifying id will not work to select a specific item."
-            )
-
-        search_result = self.web_client.rest(endpoint, action, **kwargs)
-        search_result = self.raise_if_search_empty(search_result)
-
-        if details and not id and endpoint_implements_retrieve:
-            search_result = self.details_aggregation(search_result, endpoint)  # type: ignore
-
+    def search(self, endpoint="sessions", details=True, raises=True, **kwargs):
+        search_result = self.web_client.search(endpoint=endpoint, details=details, **kwargs)
+        if raises:
+            search_result = self.raise_if_search_empty(search_result)
         return self.results_to_pandas(search_result)
+
+    # @overload
+    # def search(self, endpoint=..., id: str = ..., **kwargs) -> Series: ...
+
+    # @overload
+    # def search(self, endpoint=..., id: None = ..., **kwargs) -> DataFrame: ...
+
+    # def search(self, *, endpoint="sessions", id: Optional[str] = None, details=True, **kwargs):
+    #     """Search for items in a specified endpoint.
+
+    #     This method allows you to search for items in a given endpoint, with the option to retrieve details for a
+    #     specific item if an ID is provided and the endpoint supports retrieval.
+    #     If the endpoint does not support retrieval, a warning is logged when an ID is specified.
+
+    #     Args:
+    #         endpoint (str, optional): The endpoint to search in. Defaults to "sessions".
+    #         id (Optional[str], optional): The ID of the item to retrieve. If provided, the method will attempt to
+    #             retrieve the specific item if supported by the endpoint. Defaults to None.
+    #         details (bool, optional): Whether to include detailed aggregation in the results. Defaults to True.
+    #         **kwargs: Additional keyword arguments to pass to the search request.
+
+    #     Returns:
+    #         pandas.DataFrame or pandas.Series : A DataFrame or Series containing the search results.
+
+    #     Raises:
+    #         ValueError: If the search result is empty and details are requested.
+    #     """
+    #     action = "list"
+    #     endpoint_implements_retrieve = "retrieve" in self.web_client.endpoint(endpoint).actions.keys()
+
+    #     if id and endpoint_implements_retrieve:
+    #         action = "retrieve"
+    #         kwargs["id"] = id
+    #     elif id and not endpoint_implements_retrieve:
+    #         logger.warning(
+    #             f"Endpoint {endpoint} does not implement retrieve. "
+    #             "Specifying id will not work to select a specific item."
+    #         )
+
+    #     search_result = self.web_client.rest(endpoint, action, **kwargs)
+    #     search_result = self.raise_if_search_empty(search_result)
+
+    #     if details and not id and endpoint_implements_retrieve:
+    #         search_result = self.details_aggregation(search_result, endpoint)  # type: ignore
+
+    #     return self.results_to_pandas(search_result)
 
     def raise_if_search_empty(self, search_result: dict[str, dict | str] | list[dict[str, dict | str]] | None):
         if not search_result:
