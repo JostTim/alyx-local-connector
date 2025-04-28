@@ -1,5 +1,5 @@
 from pathlib import Path
-from re import split
+from re import split, compile
 from uuid import UUID as OriginalUUID
 from datetime import datetime
 from pandas import Series
@@ -7,7 +7,21 @@ from copy import copy
 
 from .expressions import Part, Matcher
 
-from typing import Optional, Any
+from typing import Optional, Any, TypedDict, List, Tuple, Unpack, Union, cast
+
+
+class PartsDict(TypedDict, total=False):
+    root: Union[str, Path]
+    drive: Union[str, Path]
+    subject: str
+    date: Union[datetime, str]
+    number: Union[str, int]
+    collection: Union[str, Path]
+    revision: Union[str, Path]
+    object: str
+    attribute: str
+    extra: Union[str, List[str], Tuple[str, ...]]
+    extension: str
 
 
 class UUID(OriginalUUID):
@@ -41,27 +55,27 @@ class File:
     partsnames = Part._member_names_
 
     _unallowed_chars = ["?", "*", ":", '"', "<", ">"]
+    _unallowed_chars_pattern = compile(rf'[{"".join([char for char in _unallowed_chars])}]')
 
     def _check_unallowed_chars(self, variable: Any):
         if not variable:
             return
-        variable = str(variable)
-        if any([char in variable for char in self._unallowed_chars]):
+        if bool(self._unallowed_chars_pattern.search(str(variable))):
             raise ValueError(f"A path cannot contain any of these characters {self._unallowed_chars}")
 
     def copy(self) -> "File":
         return copy(self)
 
-    def __new__(cls, path: Optional[str | Path] = None, *args, **kwargs: Optional[str | Path]):
+    def __new__(cls, path: Optional[str | Path] = None, **kwargs: Unpack[PartsDict]):
         if path is None and not kwargs:
             return super().__new__(cls)
         if path is not None:
             obj = cls.from_path(path, pattern="fullpath")
             return obj
-        return cls.from_parts(*args, **kwargs)
+        return cls.from_parts(**kwargs)
 
     @classmethod
-    def from_parts(cls, **kwargs: Optional[str | Path]) -> "File":
+    def from_parts(cls, **kwargs: Unpack[PartsDict]) -> "File":
         obj = cls()
         for partname, partvalue in kwargs.items():
             if partname == "drive":
@@ -72,7 +86,7 @@ class File:
 
     @classmethod
     def from_path(cls, fullpath: str | Path, pattern="fullpath") -> "File":
-        parts = Matcher.search(pattern, fullpath)
+        parts = cast(PartsDict, Matcher.search(pattern, fullpath))
         return cls.from_parts(**parts)
 
     def __setitem__(self, partname: str, value: Path | str | int | None):
@@ -109,7 +123,7 @@ class File:
         self._root = rootpath
 
     @property
-    def drive(self):
+    def drive(self) -> Optional[Path]:
         return getattr(self, "_drive", None)
 
     @drive.setter
@@ -121,7 +135,7 @@ class File:
         return getattr(self, "_subject", None)
 
     @subject.setter
-    def subject(self, subject: Optional[str | Path]):
+    def subject(self, subject: Optional[str]):
         self._check_unallowed_chars(subject)
         self._subject = subject if subject is not None else None
 
@@ -212,7 +226,10 @@ class File:
         return getattr(self, "_extra", None)
 
     @extra.setter
-    def extra(self, extra: Optional[str]):
+    def extra(self, extra: Optional[str | List[str] | Tuple[str, ...]]):
+        if isinstance(extra, (list, tuple)):
+            self.extras = extra
+            return
         self._check_unallowed_chars(extra)
         self._extra = extra if extra else None
 
@@ -221,7 +238,7 @@ class File:
         return str(self.extra).split(".") if self.extra else []
 
     @extras.setter
-    def extras(self, extras: list[str] | tuple[str]):
+    def extras(self, extras: List[str] | Tuple[str, ...]):
         self.extra = ".".join(extras)
 
     @property
@@ -414,6 +431,7 @@ class File:
     def to_dict(self) -> dict:
         return dict(
             root=self.root,
+            drive=self.drive,
             subject=self.subject,
             date=self.date,
             number=self.number,

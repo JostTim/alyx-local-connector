@@ -19,3 +19,4 @@ scratch/
 *.egg-info/
 scripts*
 .pdm-python
+*.prof

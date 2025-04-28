@@ -12,7 +12,7 @@ from ..configuration import Configuration
 from .urls import UrlValidator
 from .api import EndpointUrl, Endpoint, APISpecification, OpenAPISpecification, Request, Operateur
 
-from typing import Optional, Type, TypeVar, Generic, Literal, List, Dict
+from typing import Optional, Type, TypeVar, Generic, Literal, List, Dict, Any, cast
 
 Specification = TypeVar("Specification", bound=APISpecification)
 
@@ -218,7 +218,7 @@ class Client(ABC, Generic[Specification]):
         for result in tqdm(
             search_result, total=len(search_result), delay=2, desc=f"Loading {endpoint} details", file=stdout
         ):
-            retrieve_params = {name: result[name] for name in required_params}
+            retrieve_params = cast(Dict[str, Any], {name: result[name] for name in required_params})
             detailed_results.append(self.rest(endpoint, "retrieve", **retrieve_params))
         return detailed_results
 
@@ -443,3 +443,9 @@ class ClientWithConfig(ClientWithAuth):
 
 class WebClient(ClientWithConfig):
     specification_class = OpenAPISpecification
+
+
+class CreationClient:
+
+    def __init__(self) -> None:
+        pass

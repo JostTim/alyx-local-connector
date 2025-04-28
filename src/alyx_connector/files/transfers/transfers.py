@@ -19,6 +19,17 @@ from pandas import DataFrame, Series
 from typing import Optional
 
 
+from typing import TypedDict, Literal
+
+
+class Policies(TypedDict, total=False):
+    close_dates: Literal["conflict", "overwrite", "transfer", "ignore"]
+    destination_older: Literal["conflict", "overwrite", "transfer", "ignore"]
+    no_file_exists: Literal["conflict", "overwrite", "transfer", "ignore"]
+    destination_younger: Literal["conflict", "overwrite", "transfer", "ignore"]
+    close_dates_threshold: int
+
+
 class FileTransferManager:
 
     results: DataFrame
@@ -51,7 +62,7 @@ class FileTransferManager:
         conflicts = results[results["decision"] == "conflict"]
         accepted_decisions = ["transfer", "overwrite", "ignore", "conflict"]
 
-        def conflict_pannel(conflict=None):
+        def conflict_pannel(conflict: Optional[Series] = None):
 
             if conflict is None:
                 return Panel("", title="❗ Handling Conflict :", border_style="dark_blue")
@@ -424,25 +435,32 @@ class FileTransferManager:
                     )
         return DataFrame(copy_results)
 
-    def fetch(self, policies=None, show_status=True):
+    def fetch(self, policies: Optional[Policies] = None, show_status=True):
         results = self.check_files(source="remote_path", destination="local_path", policies=policies)
         new_file_namager = FileTransferManager(self.sessions, results, direction="pull")
         if show_status:
             new_file_namager.status()
         return new_file_namager
 
-    def push_request(self, policies=None, show_status=True):
+    def push_request(self, policies: Optional[Policies] = None, show_status=True):
         results = self.check_files(source="local_path", destination="remote_path", policies=policies)
         new_file_namager = FileTransferManager(self.sessions, results, direction="push")
         if show_status:
             new_file_namager.status()
         return new_file_namager
 
-    def check_files(self, source="remote_path", destination="local_path", policies=None):
+    def pull_request(self, policies: Optional[Policies] = None, show_status=True):
+        results = self.check_files(source="remote_path", destination="local_path", policies=policies)
+        new_file_namager = FileTransferManager(self.sessions, results, direction="push")
+        if show_status:
+            new_file_namager.status()
+        return new_file_namager
+
+    def check_files(self, source="remote_path", destination="local_path", policies: Optional[Policies] = None):
 
         console = Console()
 
-        default_policies = {
+        default_policies: Policies = {
             "close_dates": "conflict",
             "destination_older": "overwrite",
             "no_file_exists": "transfer",

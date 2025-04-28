@@ -1,10 +1,9 @@
 from openapi_parser.specification import Operation, Specification, Path as OpenAPIPath
 from openapi_parser import parse as parse_openapi_schema
 from openapi_parser.errors import ParserError
-import requests
+import json, re, requests
 from requests.models import Response
-import json
-import re
+from urllib.parse import urlencode
 from logging import getLogger
 from abc import ABC
 
@@ -111,7 +110,7 @@ class EndpointUrl(str):
             protocol=self.client.protocol,  # http or https
             netloc=self.client.netloc,  # netloc = host+port
             path=self.finalized_path(**requirements_dict),  # path
-            query_string=self.make_query_string(query_dict),  # querystring example : ?thing=truc
+            query_string=urlencode(query_dict),  # querystring example : ?thing=truc
             fragment=fragment,  # basically an anchor, fragment example : #title1
         )
         return url
@@ -135,11 +134,11 @@ class EndpointUrl(str):
         query_dict = {k: v for k, v in kwargs.items() if k not in self.requirements}
         return query_dict, requirements
 
-    def make_query_string(self, query_dict: dict) -> str:
-        query_list = []
-        for key, value in query_dict.items():
-            query_list.append(f"{key}={value}")
-        return "&".join(query_list)
+    # def make_query_string(self, query_dict: dict) -> str:
+    #     query_list = []
+    #     for key, value in query_dict.items():
+    #         query_list.append(f"{key}={value}")
+    #     return "&".join(query_list)
 
     @property
     def endpoint(self):
