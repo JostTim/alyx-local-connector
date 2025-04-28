@@ -1,79 +1,88 @@
-# Open Neurophysiology Environment - HaissLab flavour
+# Python Connector to Alyx-Local instance(s)
 
-The Open Neurophysiology Environment is a scheme for accessing neurophysiology data from an alyx database server, in a standardized manner. For information on how to manage file names when registering data with ONE to an alyx server, please [click here](https://github.com/int-brain-lab/ONE/blob/main/docs/Open_Neurophysiology_Environment_Filename_Convention.pdf). This github page contains an API for searching and loading ONE-standardized data, stored either on a user’s local machine or on a remote server. Please [Click here](https://int-brain-lab.github.io/ONE/) for the main documentation page.
+## Install 
 
-**NB**: The API and backend database are still under active development, for the best experience please regularly update the package by running :  
-`pip install --force-reinstall --no-deps git+https://gitlab.pasteur.fr/haisslab/data-management/ONE.git`.  
-This  will force the reinstallation of the package, without the need to do a `pip uninstall ONE-api` first, and without reinstalling the dependancies like numpy etc (hence faster).
+Install with
 
-## Requirements
-ONE runs on Python 3.7 or later, and is tested on the latest Ubuntu and Windows (3.7 and 3.8 only).
-
-## Installing
-Installing the package via pip typically takes a few seconds.  To install, activate your developpement environment :
-```
-conda activate <myenvironment>
-```
-Then run the One-api install using :
-```
-pip install git+https://gitlab.pasteur.fr/haisslab/data-management/ONE.git
+```bash
+pip install alyx-connector
 ```
 
-## Set up
+or
 
-For setting up ONE for a given database e.g. our local version of Alyx at HaissLab:
+```bash
+pip install git+https://github.com/JostTim/alyx-local-connector.git@docker-compatible
+```
+
+## First use
+
+You need to create a connector object to the alyx_instance that you are using.
+The easyest way to create one at the beginning, or for any other new connection with a different username or to a different instance, you can use the `Connector.setup()` class function :
+
 ```python
-from one import ONE
-one = ONE(base_url='http://157.99.138.172:8080')
+from alyx_connector import Connector
+
+connector = Connector.setup()
 ```
 
-Once you've setup the server, subsequent calls will use the same parameters:
+You will be prompted to enter informations for setting the new connection.
+
+First, the address of the server : 
+![Enter address](./docs/.assets/first_connection/Capture%20d'écran%202025-04-28%20100132.png)
+
+Second, the username to use : 
+![Enter username](./docs/.assets/first_connection/Capture%20d'écran%202025-04-28%20100400.png)
+
+Optionally, decide wether to make this the default address and username combo, when you call `Connector()` without arguments, at later times :
+![Enter set default](./docs/.assets/first_connection/Capture%20d'écran%202025-04-28%20100309.png)
+
+Lastly, the password to use with that address / username combo : (if successfull, the server will provide a token that will be saved by the connector for that adress/username combo, so that you don't need to retype the password again, but the pasword itself is not saved for security reasons)
+![Enter password](./docs/.assets/first_connection/Capture%20d'écran%202025-04-28%20103000.png)
+
+If the connection succeeds, you will get a connector object :
+![connector obtained](./docs/.assets/first_connection/Capture%20d'écran%202025-04-28%20100459.png)
+
+
+## Subsequent uses
+
+After setting up at least a first connection, you can use the connector at later times (even after restarting python) using several ways :
+
+
+### Using the default server / username :
 ```python
-from one import ONE
-one = ONE() #uses the same parameters entered the first time and stored by default in C:\Users\<myusername>\AppData\Roaming\.one\.157.99.138.172_8080: 
-
+from alyx_connector import Connector
+connector = Connector()
 ```
-For using ONE with a local cache directory (not recommanded for now):
+
+### Using a specific server, but the default username for that server :
 ```python
-from one import One
-one = One(cache_dir='/home/user/downlaods/ONE/behavior_paper')
+from alyx_connector import Connector
+connector = Connector(url="127.0.0.1")
 ```
 
-## Using ONE
-To search for sessions:
+### Using a specific server and username :
 ```python
-from one import ONE
-one = ONE()
-print(one.search_terms())  # A list of search keyword arguments
-
-# Search session with wheel timestamps from January 2021 onward
-eids = one.search(date_range=['2021-01-01',], dataset='wheel.timestamps')
-['d3372b15-f696-4279-9be5-98f15783b5bb'] # this is a list of unique ids of sessions returned. Here only one has been found with given parameters
-
-# Search for project sessions with two probes
-eids = one.search(data=['probe00', 'probe01'], project='brainwide')
+from alyx_connector import Connector
+connector = Connector(url="127.0.0.1", username="myname")
 ```
 
-Further examples and tutorials can be found in the main IBL documentation [documentation](https://int-brain-lab.github.io/ONE/).
+At any time, you can check the server and username used by the connect, by typing `connector.url` or `connector.username`
 
 
-(Not currentely supported :)
+## Accessing data using the connector
 
-To load data:
+The main use of the connector is usually to search experimental sessions data, based on some filter.
+
+To get a table of session when the animal used is for example ``ea04``, you can type :
+
 ```python
-from one.api import ONE
-one = ONE()
-
-# Load an ALF object
-eid = 'a7540211-2c60-40b7-88c6-b081b2213b21'
-wheel = one.load_object(eid, 'wheel')
-
-# Load a specific dataset
-eid = 'a7540211-2c60-40b7-88c6-b081b2213b21'
-ts = one.load_dataset(eid, 'wheel.timestamps', collection='alf')
-
-# Download, but not load, a dataset
-filename = one.load_dataset(eid, 'wheel.timestamps', download_only=True)
+sessions = connector.search(subject = "ea04")
 ```
+
+you will get a ``pandas.DataFrame`` where each row is corresponding to a session, and each column to some information relative to that session, as available on the alyx-local website.
+
+Example :
+![session_table](./docs/.assets/search_sessions/Capture%20d'écran%202025-04-28%20104158.png)
+
 
 

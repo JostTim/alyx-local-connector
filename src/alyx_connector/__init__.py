@@ -1,3 +1,3 @@
-__version__ = "2.1.32"
+__version__ = "2.1.33"
 
 from .connector.core import Connector
