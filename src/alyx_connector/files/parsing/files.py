@@ -10,6 +10,14 @@ from .expressions import Part, Matcher
 from typing import Optional, Any, TypedDict, List, Tuple, Unpack, Union, cast
 
 
+class ObjectError(ValueError):
+    """Error when parsing or retrieving an object related to a file in alyx"""
+
+
+class ExtraError(ValueError):
+    """Error when parsing or retrieving an extra or extras related to a file in alyx"""
+
+
 class PartsDict(TypedDict, total=False):
     root: Union[str, Path]
     drive: Union[str, Path]
@@ -262,7 +270,7 @@ class File:
     def session_name(self) -> str:
         if self.subject is None or self.date is None or self.number is None:
             raise ValueError(
-                "Cannot create a session name from a File taht doesn't specify both a subject, date and number"
+                "Cannot create a session name from a File that doesn't specify both a subject, date and number"
             )
         return str(Path(self.subject) / self.date / self.number)
 
@@ -284,20 +292,20 @@ class File:
     def session_alias(self) -> str:
         if self.subject is None or self.date is None or self.number is None:
             raise ValueError(
-                "Cannot create a session alias from a File taht doesn't specify both a subject, date and number"
+                "Cannot create a session alias from a File that doesn't specify both a subject, date and number"
             )
         return "_".join([self.subject, self.date, self.number])
 
     @property
     def filename(self) -> str:
         if self.object is None:
-            raise ValueError("Cannot resolve a filename if at least the 'object' attribute is not set.")
+            raise ObjectError("Cannot resolve a filename if at least the 'object' attribute is not set.")
         if (
             (self.extras and not self.attribute)
             or (self.extras and not self.extension)
             or (self.attribute and not self.extension)
         ):
-            raise ValueError(
+            raise ExtraError(
                 "Cannot create a valid reparseable filename if extras are set but an attribute or sextension is not"
             )
         parts = [part for part in [self.object, self.attribute] + self.extras + [self.extension] if part]
@@ -421,6 +429,12 @@ class File:
         </style>
         """
         )
+
+    def __str__(self):
+        return self.fullpath.__str__()
+
+    def __repr__(self):
+        return self.__str__()
 
     def dromedize(self):
         """

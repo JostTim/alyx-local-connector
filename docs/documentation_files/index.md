@@ -28,19 +28,19 @@ connector = Connector.setup()
 You will be prompted to enter informations for setting the new connection.
 
 First, the address of the server : 
-![Enter address](./docs/documentation_files/.assets/images/first_connection/Capture%20d'écran%202025-04-28%20100132.png)
+![Enter address](.assets/images/first_connection/Capture%20d'écran%202025-04-28%20100132.png)
 
 Second, the username to use : 
-![Enter username](./docs/documentation_files/.assets/images/first_connection/Capture%20d'écran%202025-04-28%20100400.png)
+![Enter username](.assets/images/first_connection/Capture%20d'écran%202025-04-28%20100400.png)
 
 Optionally, decide wether to make this the default address and username combo, when you call `Connector()` without arguments, at later times :
-![Enter set default](./docs/documentation_files/.assets/images/first_connection/Capture%20d'écran%202025-04-28%20100309.png)
+![Enter set default](.assets/images/first_connection/Capture%20d'écran%202025-04-28%20100309.png)
 
 Lastly, the password to use with that address / username combo : (if successfull, the server will provide a token that will be saved by the connector for that adress/username combo, so that you don't need to retype the password again, but the pasword itself is not saved for security reasons)
-![Enter password](./docs/documentation_files/.assets/images/first_connection/Capture%20d'écran%202025-04-28%20103000.png)
+![Enter password](.assets/images/first_connection/Capture%20d'écran%202025-04-28%20103000.png)
 
 If the connection succeeds, you will get a connector object :
-![connector obtained](./docs/documentation_files/.assets/images/first_connection/Capture%20d'écran%202025-04-28%20100459.png)
+![connector obtained](.assets/images/first_connection/Capture%20d'écran%202025-04-28%20100459.png)
 
 
 ## Subsequent uses
@@ -85,7 +85,7 @@ sessions = connector.search(subject = "ea04")
 you will get a ``pandas.DataFrame`` where each row is corresponding to a session, and each column to some information relative to that session, as available on the alyx-local website.
 
 Example :
-![session_table](./docs/documentation_files/.assets/images/search_sessions/Capture%20d'écran%202025-04-28%20104158.png)
+![session_table](.assets/images/search_sessions/Capture%20d'écran%202025-04-28%20104158.png)
 
 
 You can get the session infos ``narrative`` for example, for the third session that you obtained here, by doing : 
@@ -95,7 +95,7 @@ session = sessions.iloc[3] # get the third session in the table, by index order
 print(session.narrative) # print the narrative
 ```
 
-![session_narrative](./docs/documentation_files/.assets/images/search_sessions/Capture%20d'écran%202025-04-28%20115001.png)
+![session_narrative](.assets/images/search_sessions/Capture%20d'écran%202025-04-28%20115001.png)
 
 You can also access the json based fields : `session.json` and `session.extended_qc`, which are standard python dictionnaries. (containing potentially nested data that you entered)
 
@@ -103,8 +103,8 @@ You can also access the json based fields : `session.json` and `session.extended
 session.json
 ```
 
-![session_json](./docs/documentation_files/.assets/images/search_sessions/Capture%20d'écran%202025-04-28%20114948.png)
-![session_json_getitem](./docs/documentation_files/.assets/images/search_sessions/Capture%20d'écran%202025-04-28%20114932.png)
+![session_json](.assets/images/search_sessions/Capture%20d'écran%202025-04-28%20114948.png)
+![session_json_getitem](.assets/images/search_sessions/Capture%20d'écran%202025-04-28%20114932.png)
 
 The ``json`` field is meant as a way to store additionnal metadata that you cannot enter inside the regular session table fields. (as different experiments may need different fields)
 

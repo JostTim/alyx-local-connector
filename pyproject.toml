@@ -33,6 +33,10 @@ homepage = "https://gitlab.pasteur.fr/haisslab/data-management/ONE"
 repository = "https://gitlab.pasteur.fr/haisslab/data-management/ONE"
 documentation = "https://gitlab.pasteur.fr/haisslab/data-management/ONE"
 
+[project.optional-dependencies]
+docs = [
+    "mkdocs-material>=9.6.12",
+]
 [tool.pdm.version]
 source = "file"
 path = "src/alyx_connector/__init__.py"

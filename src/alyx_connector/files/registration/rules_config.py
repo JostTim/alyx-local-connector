@@ -5,7 +5,8 @@ from pandas import Series, DataFrame
 from pathlib import Path
 from re import Pattern
 
-from .utils import get_existing_datasets, find_files
+from .. import find_files
+from .utils import get_existing_datasets
 from ...files.parsing.files import File
 
 from typing import Literal, List, Dict, Tuple, Optional, Union, Callable, Protocol, Iterator, cast, TYPE_CHECKING
@@ -806,10 +807,13 @@ class Config:
     def evaluate_session(self, session: Series | str) -> FilesRecordList:
 
         if isinstance(session, Series):
-            search_folder = session["path"]
+            search_folder = Path(session["path"])
         else:  # session is a string, not a Series
             session = cast(Series, self.connector.search(id=session, no_cache=True, details=True)["path"])
-            search_folder = session["path"]
+            search_folder = Path(session["path"])
+
+        if not Path(search_folder).exists():
+            raise ValueError("The session.path must exist and correspond to an existing repository")
 
         files_list = find_files(search_folder, relative=False, levels=-1, get="files")
 
@@ -865,8 +869,8 @@ class Config:
             session_path = file_records[0].source_file.session_path
             folders_list = find_files(session_path, relative=True, levels=-1, get="folders")
             for folder in folders_list:
-                if folder in self.cleanup_folders:
-                    _folder_path = os.path.join(session_path, folder)
+                if str(folder) in self.cleanup_folders:
+                    _folder_path = session_path / folder
                     files_in_dir = find_files(_folder_path, relative=True, levels=-1, get="files")
                     if len(files_in_dir):
                         continue  # folder is not empty, we cannot clean it up
