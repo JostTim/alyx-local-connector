@@ -354,16 +354,21 @@ class File:
             return False
 
     def _repr_html_(self):
+        try:
+            filename = self.fullpath
+        except Exception:
+            filename = "Invalid fullpath"
+        header_text = f"{self.__class__.__name__} : {filename}"
         return (
             f"""
         <div class="table-container">
             <table>
                 <thead>
-                    <th class="title" colspan="10">{self.__class__.__name__} :</th>
+                    <th class="title" colspan="10">{header_text}<button id="toggle-headers-btn">&#x25BC;</button></th>
                 </thead>
                 <thead class="head">
                     <tr>
-                        <th>root</th>
+                        <th rowspan="3">root</th>
                         <th>subject</th>
                         <th>date</th>
                         <th>number</th>
@@ -373,6 +378,18 @@ class File:
                         <th>attribute</th>
                         <th>extra</th>
                         <th>extension</th>
+                    </tr>
+                    <tr class="foldable-header">
+                        <th colspan="9">relative_path</th>
+                    </tr>
+                    <tr class="foldable-header">
+                        <th colspan="3">session_name</th>
+                        <th colspan="2">collection_subpath</th>
+                        <th colspan="4">filename</th>
+                    </tr>
+                    <tr class="foldable-header">
+                        <th colspan="4">session_path</th>
+                        <th colspan="6">internal_path</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -403,6 +420,7 @@ class File:
                 text-align: left;
                 white-space: pre;
                 font-weight: bolder;
+                position:relative;
             }
             table {
                 font-family: consolas;
@@ -426,7 +444,50 @@ class File:
             thead > tr > th:hover, tbody > tr > td:hover{
                 background-color: rgba(111, 110, 160, 0.267);
             }
+            #toggle-headers-btn {
+                position:absolute;
+                right:8px;
+                top:4px;
+                font-size:0.9em;
+            }
+            .foldable-header {
+                display: none;
+                transition: display 0.2s;
+            }
+            .foldable-header.visible {
+                display: table-row;
+            }
+            #toggle-headers-btn {
+                background: none;
+                border: none;
+                cursor: pointer;
+                padding: 0 4px;
+                color: #444;
+                transition: color 0.2s;
+            }
+            #toggle-headers-btn:hover {
+                color: #222;
+            }
         </style>
+        <script>
+            (function(){
+                var btn = document.getElementById('toggle-headers-btn');
+                var rows = document.querySelectorAll('.foldable-header');
+                var expanded = false;
+                function setRows(show) {
+                    rows.forEach(function(row){
+                        if(show) row.classList.add('visible');
+                        else row.classList.remove('visible');
+                    });
+                    btn.innerHTML = show ? '&#x25B2;' : '&#x25BC;';
+                }
+                btn.addEventListener('click', function(){
+                    expanded = !expanded;
+                    setRows(expanded);
+                });
+                setRows(false);
+            })();
+        </script>
         """
         )
 
