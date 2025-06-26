@@ -226,16 +226,37 @@ class Expressions(Enum):
 class Matcher:
 
     @classmethod
-    def search(cls, pattern: Expressions | str, string: str | Path) -> dict:
+    def resolve_pattern(cls, pattern: Expressions | str):
         if isinstance(pattern, str):
             pattern_enum: Expressions | None = getattr(Expressions, pattern, None)
             if pattern_enum is None:
                 raise AttributeError(f"Expressions has no patern defined for the name {pattern}")
         else:
             pattern_enum = pattern
-        if isinstance(string, Path):
-            string = str(string)
-        expression_name = pattern_enum.name
+        return pattern_enum
+
+    @classmethod
+    def ensure_string(cls, string: Any) -> str:
+        if not isinstance(string, str):
+            return str(string)
+        return string
+
+    @classmethod
+    def search(cls, pattern: Expressions | str, string: str | Path) -> dict:
+        pattern_enum = cls.resolve_pattern(pattern)
+        string = cls.ensure_string(string)
+
         expression_patern: Pattern = pattern_enum.value
         match = expression_patern.search(string)
         return match.groupdict() if match is not None else {}
+
+    @classmethod
+    def match(cls, pattern: Expressions | str, string: str | Path) -> str | None:
+        pattern_enum = cls.resolve_pattern(pattern)
+        string = cls.ensure_string(string)
+        expression_patern: Pattern = pattern_enum.value
+
+        match = expression_patern.search(string)
+        if match:
+            return match.group()  # we return the whole first group, wich contains the largest pattern found
+        return None

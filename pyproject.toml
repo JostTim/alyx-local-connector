@@ -34,9 +34,16 @@ repository = "https://gitlab.pasteur.fr/haisslab/data-management/ONE"
 documentation = "https://gitlab.pasteur.fr/haisslab/data-management/ONE"
 
 [project.optional-dependencies]
-docs = [
-    "mkdocs-material>=9.6.12",
-]
+docs = ["mkdocs-material>=9.6.12"]
+tests = ["pytest-cov>=6.2.1", "responses>=0.25.7"]
+
+[tool.pytest.ini_options]
+addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb --cov-report xml --cov=alyx_connector --junitxml=pytest_results.xml --cov-config=pyproject.toml"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+omit = [".venv/*", ".vscode/*", ".tests/*"]
+
 [tool.pdm.version]
 source = "file"
 path = "src/alyx_connector/__init__.py"
@@ -62,6 +69,4 @@ ignore = ["W504", "W503", "E266"]
 max-line-length = 99
 
 [dependency-groups]
-dev = [
-    "ipykernel>=6.29.5",
-]
+dev = ["ipykernel>=6.29.5"]

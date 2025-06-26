@@ -32,12 +32,12 @@ class FileStatus:
 
 class FileRecordSeries(Series):
 
-    def __init__(self, source_path: str | Path):
+    def __new__(cls, source_path: str | Path):
         data = {}
         data["source_path"] = Path(source_path)
         data["matching_rules"] = []
         data["used_rule"] = None
-        super().__init__(data)
+        return super(FileRecordSeries, cls).__new__(cls, data)
 
 
 @dataclass
