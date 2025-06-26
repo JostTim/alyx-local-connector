@@ -2,7 +2,7 @@ name: docs
 on:
   push:
     branches:
-      - docker 
+      - docker-compatible
 permissions:
   contents: write
 jobs:
@@ -25,5 +25,5 @@ jobs:
           path: .cache 
           restore-keys: |
             mkdocs-material-
-      - run: pdm sync -G docs
+      - run: pdm sync -G docs --prod
       - run: pdm run mkdocs gh-deploy --config-file ./docs/mkdocs.yml --force
