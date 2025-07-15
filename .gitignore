@@ -20,3 +20,5 @@ scratch/
 scripts*
 .pdm-python
 *.prof
+coverage.xml
+pytest_results.xml
