@@ -3,7 +3,8 @@ from pandas import DataFrame, Series
 from sys import stdout
 from tqdm import tqdm
 
-from ..utils import Singleton
+from ..utils.types import Singleton
+from ..utils.render_classes import obfuscate
 from ..web.clients import WebClient
 from ..files.registration.rules_config import Config
 
@@ -193,6 +194,14 @@ class Connector(metaclass=Singleton):
         ):
             detailed_results.append(self.web_client.rest(endpoint, "retrieve", id=result["id"]))
         return detailed_results
+
+    def __repr__(self):
+        return (
+            f"<{self.__class__.__name__}> - url:{self.url} - "
+            f"username:{self.username} - "
+            f"is_logged_in:{self.web_client.is_logged_in()} - "
+            f"token:{obfuscate(self.web_client.token or "not_set")}"
+        )
 
 
 # if __name__ == "__main__":

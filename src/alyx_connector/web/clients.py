@@ -8,7 +8,7 @@ from rich.prompt import Prompt
 from sys import stdout
 from tqdm import tqdm
 
-from ..configuration import Configuration
+from ..utils.configuration import Configuration
 from .urls import UrlValidator
 from .api import EndpointUrl, Endpoint, APISpecification, OpenAPISpecification, Request, Operateur
 
@@ -130,7 +130,7 @@ class Client(ABC, Generic[Specification]):
 
         if self.endpoint(endpoint).implements_retrieve:
 
-            if self.verify_required_args_present(self.endpoint(endpoint).action("retrieve"), **kwargs):
+            if self.endpoint(endpoint).action("retrieve").verify_required_args_present(**kwargs):
                 # if the required arguments for retrieve are present, we do the retrieve here.
                 return self.retrieve(endpoint=endpoint, details=details, **kwargs)
         # else, we assume the user wanted to list instead, after here
@@ -144,34 +144,6 @@ class Client(ABC, Generic[Specification]):
 
         return self.list(endpoint=endpoint, details=details, **kwargs)
 
-    def verify_required_args_present(self, operateur: "Operateur", raises=False, **kwargs):
-
-        required_params_present = {
-            param_name: bool(kwargs.get(param_name, None)) for param_name in operateur.required_parameters.keys()
-        }
-
-        if not any(required_params_present.values()):
-            # no single required argument is present, we return False if raise is False, else we raise
-            if not raises:
-                return False
-            missing_params = ", ".join([param_name for param_name in required_params_present.keys()])
-            raise ValueError(
-                f"Required arguments {missing_params} are required for {operateur.action_name} "
-                f"on {operateur.path} and are missing"
-            )
-        elif not all(required_params_present.values()):
-            # some required arguments for the action are present, but not all the required ones,
-            # so we raise to inform the user that the action request cannot be done and that she/he should correct
-            missing_params = ", ".join(
-                [param_name for param_name, present in required_params_present.items() if not present]
-            )
-            raise ValueError(
-                f"Arguments {missing_params} are required for {operateur.action_name} on {operateur.path} "
-                "and are are missing."
-            )
-
-        return True
-
     def list(self, *, endpoint: str, details=True, **kwargs):
         results = self.rest(endpoint, "list", **kwargs)
         results = [] if not results else results
@@ -182,17 +154,17 @@ class Client(ABC, Generic[Specification]):
         return result
 
     def retrieve(self, *, endpoint: str, **kwargs):
-        self.verify_required_args_present(self.endpoint(endpoint).action("retrieve"), raises=True, **kwargs)
+        self.endpoint(endpoint).action("retrieve").verify_required_args_present(raises=True, **kwargs)
         result = self.rest(endpoint, "retrieve", **kwargs)
         return result if result else {}
 
     def update(self, *, endpoint: str, data: dict, **kwargs):
-        self.verify_required_args_present(self.endpoint(endpoint).action("update"), raises=True, **kwargs)
+        self.endpoint(endpoint).action("update").verify_required_args_present(raises=True, **kwargs)
         result = self.rest(endpoint, "update", data=data, **kwargs)
         return result
 
     def destroy(self, *, endpoint: str, **kwargs):
-        self.verify_required_args_present(self.endpoint(endpoint).action("destroy"), raises=True, **kwargs)
+        self.endpoint(endpoint).action("destroy").verify_required_args_present(raises=True, **kwargs)
         result = self.rest(endpoint, "destroy", **kwargs)
         return result
 

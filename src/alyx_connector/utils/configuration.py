@@ -7,8 +7,8 @@ from enum import Enum
 from rich.prompt import Prompt, Confirm
 from rich.text import Text
 
-from .utils import Singleton
-from .web.urls import UrlValidator
+from .types import Singleton
+from ..web.urls import UrlValidator
 
 from typing import Optional, Any
 
