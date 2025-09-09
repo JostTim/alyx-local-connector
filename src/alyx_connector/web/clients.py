@@ -7,12 +7,13 @@ from abc import ABC, abstractmethod
 from rich.prompt import Prompt
 from sys import stdout
 from tqdm import tqdm
+from pandas import DataFrame, Series
 
 from ..utils.configuration import Configuration
 from .urls import UrlValidator
 from .api import EndpointUrl, Endpoint, APISpecification, OpenAPISpecification, Request, Operateur
 
-from typing import Optional, Type, TypeVar, Generic, Literal, List, Dict, Any, cast
+from typing import Optional, Type, TypeVar, Generic, Literal, List, Dict, Any, cast, overload
 
 Specification = TypeVar("Specification", bound=APISpecification)
 
@@ -88,15 +89,38 @@ class Client(ABC, Generic[Specification]):
     def endpoint_exists(self, path: str) -> bool:
         return self.endpoint(path).exists()
 
+    @overload
     def rest(
         self,
         endpoint_name: str,
-        action: Literal["list", "retrieve", "update", "create", "destroy"],
-        timeout=1000,
+        action: Literal["list", "retrieve", "update", "create", "destroy", "partial_update"],
+        timeout: int = 1000,
+        handles_internally: Literal[True] = True,
         **kwargs,
-    ):
+    ) -> Series | DataFrame | None: ...
+
+    @overload
+    def rest(
+        self,
+        endpoint_name: str,
+        action: Literal["list", "retrieve", "update", "create", "destroy", "partial_update"],
+        timeout: int = 1000,
+        handles_internally: Literal[False] = False,
+        **kwargs,
+    ) -> Request: ...
+
+    def rest(
+        self,
+        endpoint_name: str,
+        action: Literal["list", "retrieve", "update", "create", "destroy", "partial_update"],
+        timeout: int = 1000,
+        handles_internally: Literal[True, False] = True,
+        **kwargs,
+    ) -> Series | DataFrame | None | Request:
         operateur = self.path(endpoint_name).endpoint.assert_exists().actions[action]
-        return Request(self, operateur, timeout=timeout, **kwargs).handle()
+        operateur.verify_required_args_present(**kwargs, raises=True)
+        request = Request(self, operateur, timeout=timeout, **kwargs)
+        return request.handle().output_data.table if handles_internally else request
 
         # return endpoint.actions[action].request(**kwargs)
 
@@ -128,80 +152,48 @@ class Client(ABC, Generic[Specification]):
 
         # no argument for the given action is present, we assume the user wanted to list instead.
 
-        if self.endpoint(endpoint).implements_retrieve:
+        if self.endpoint(endpoint).implements_retrieve and self.endpoint(endpoint).action(
+            "retrieve"
+        ).verify_required_args_present(**kwargs):
+            # if the required arguments for retrieve are present, we do the retrieve here.
+            return self.retrieve(endpoint=endpoint, details=details, **kwargs)
 
-            if self.endpoint(endpoint).action("retrieve").verify_required_args_present(**kwargs):
-                # if the required arguments for retrieve are present, we do the retrieve here.
-                return self.retrieve(endpoint=endpoint, details=details, **kwargs)
         # else, we assume the user wanted to list instead, after here
-
-        if "id" in kwargs.keys() or "name" in kwargs.keys():
-            # just in case, we warn the user if she/he supplied id or name, and the endpoint doesn't implement retrieve
-            logger.warning(
-                f"Endpoint {endpoint} does not implement retrieve. "
-                "You specified id or name but it will not work to select a specific item. Listing instead"
-            )
-
         return self.list(endpoint=endpoint, details=details, **kwargs)
 
-    def list(self, *, endpoint: str, details=True, **kwargs):
-        results = self.rest(endpoint, "list", **kwargs)
-        results = [] if not results else results
-        return self.details_aggregation(results, endpoint) if details else results  # type: ignore
+    def list(self, *, endpoint: str, details=True, **kwargs) -> DataFrame | Series | None:
+        results = self.rest(endpoint, "list", details=details, **kwargs)
+        return results
 
-    def create(self, *, endpoint: str, data: dict, **kwargs):
+    def create(self, *, endpoint: str, data: dict, **kwargs) -> DataFrame | Series | None:
         result = self.rest(endpoint, "create", data=data, **kwargs)
         return result
 
-    def retrieve(self, *, endpoint: str, **kwargs):
-        self.endpoint(endpoint).action("retrieve").verify_required_args_present(raises=True, **kwargs)
+    def retrieve(self, *, endpoint: str, **kwargs) -> Series | None:
         result = self.rest(endpoint, "retrieve", **kwargs)
-        return result if result else {}
+        return result
 
-    def update(self, *, endpoint: str, data: dict, **kwargs):
-        self.endpoint(endpoint).action("update").verify_required_args_present(raises=True, **kwargs)
+    def update(self, *, endpoint: str, data: dict, **kwargs) -> DataFrame | Series | None:
         result = self.rest(endpoint, "update", data=data, **kwargs)
         return result
 
-    def destroy(self, *, endpoint: str, **kwargs):
-        self.endpoint(endpoint).action("destroy").verify_required_args_present(raises=True, **kwargs)
+    def destroy(self, *, endpoint: str, **kwargs) -> DataFrame | Series | None:
         result = self.rest(endpoint, "destroy", **kwargs)
         return result
 
-    def details_aggregation(
-        self, search_result: List[Dict[str, dict | str]], endpoint: str
-    ) -> List[Dict[str, dict | str]]:
-        """Aggregates detailed results from a list of search results by retrieving additional information
-        from a specified endpoint.
-
-        Args:
-            search_result (list[dict[str, dict | str]]): A list of dictionaries containing search results,
-            where each dictionary includes an 'id' key.
-            endpoint (str): The API endpoint from which to retrieve detailed information.
-
-        Returns:
-            list[dict[str, dict | str]]: A list of dictionaries containing detailed results retrieved
-            from the specified endpoint.
-        """
-        required_params = [
-            param_name for param_name in self.endpoint(endpoint).action("retrieve").required_parameters.keys()
-        ]
-        detailed_results = []
-        for result in tqdm(
-            search_result, total=len(search_result), delay=2, desc=f"Loading {endpoint} details", file=stdout
-        ):
-            retrieve_params = cast(Dict[str, Any], {name: result[name] for name in required_params})
-            detailed_results.append(self.rest(endpoint, "retrieve", **retrieve_params))
-        return detailed_results
+    def partial_update(self, *, endpoint: str, data: dict, **kwargs) -> DataFrame | Series | None:
+        result = self.rest(endpoint, "partial_update", data=data, **kwargs)
+        return result
 
     def describe(self, endpoint_name: str):
+        # TODO make a proper description tool
         endpoint = self.path(endpoint_name).endpoint.assert_exists()
         return endpoint
 
-    def post_request_callback(self, response: "Response"):
+    def post_request_callback(self, request: "Request"):
         pass
 
-    def pre_request_callback(self):
+    def pre_request_callback(self, request: "Request"):
         pass
 
     def is_up(self) -> bool:
@@ -403,11 +395,11 @@ class ClientWithConfig(ClientWithAuth):
 
     delete_cache = clear_rest_cache
 
-    def pre_request_callback(self):
+    def pre_request_callback(self, request: "Request"):
         self.ensure_authenticated()
 
-    def post_request_callback(self, response: "Response"):
-        if response.status_code == 403 and '"Invalid token."' in response.text:
+    def post_request_callback(self, request: "Request"):
+        if request.response and request.response.status_code == 403 and '"Invalid token."' in request.response.text:
             self.authenticate(cache_token=True, force=True)
             return "retry"
         return None
@@ -415,9 +407,3 @@ class ClientWithConfig(ClientWithAuth):
 
 class WebClient(ClientWithConfig):
     specification_class = OpenAPISpecification
-
-
-class CreationClient:
-
-    def __init__(self) -> None:
-        pass

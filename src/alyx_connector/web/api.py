@@ -1,4 +1,4 @@
-from openapi_parser.specification import Operation, Specification, Path as OpenAPIPath
+from openapi_parser.specification import Operation, Specification, Parameter, Path as OpenAPIPath
 from openapi_parser import parse as parse_openapi_schema
 from openapi_parser.errors import ParserError
 import json, re, requests
@@ -6,18 +6,25 @@ from requests.models import Response
 from urllib.parse import urlencode, quote
 from logging import getLogger
 from abc import ABC
-
+from pandas import DataFrame, Series
+from tqdm import tqdm
+from sys import stdout
 from warnings import warn
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..utils.logging import filter_message
 from .urls import UrlValidator
 
-from typing import Any, Dict, Tuple, List, Optional, Protocol, TYPE_CHECKING
+from typing import Any, Dict, Tuple, List, Optional, Protocol, TypeAlias, NoReturn, overload, cast, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .clients import ClientWithAuth, Client
 
 logger = getLogger("alyx_connector.client")
+
+
+ResponseDataEntry: TypeAlias = dict[str, "ResponseDataEntry | str"]
+ResponseListofDataEntries = list[ResponseDataEntry]
 
 
 class APISpecification(ABC):
@@ -179,13 +186,6 @@ class Endpoint:
             for operation_name, operations_list in actions_dict.items()
         }
 
-        return {
-            "_".join(operation.operation_id.split("_")[1:]): Operateur(route, self.client, operation)
-            for route in self.routes
-            for operation in self.client.schema.paths_dict[route].operations
-            if operation.operation_id is not None
-        }
-
     @property
     def implements_retrieve(self):
         if "retrieve" in self.actions.keys():
@@ -210,6 +210,7 @@ class Operateur:
         self.path = path
         self.client = client
         self.operation = operation
+        self.endpoint = self.path.endpoint
 
     @property
     def action_name(self):
@@ -247,8 +248,8 @@ class Operateur:
         return {param.name: param for param in self.operation.parameters}
 
     @property
-    def required_parameters(self):
-        return {param.name: param for param in self.operation.parameters if param.required}
+    def required_parameters(self) -> tuple[dict[str, Parameter]]:
+        return ({param.name: param for param in self.operation.parameters if param.required},)
 
     def __repr__(self):
         return f"{self.path} - {self.operation}"
@@ -258,8 +259,12 @@ class Operateur:
 
     def verify_required_args_present(self, raises=False, **kwargs):
 
+        # if no required parameter is defined in the endpoint, just skip the checks
+        if len(self.required_parameters[0]) == 0:
+            return True
+
         required_params_present = {
-            param_name: bool(kwargs.get(param_name, None)) for param_name in self.required_parameters.keys()
+            param_name: bool(kwargs.get(param_name, None)) for param_name in self.required_parameters[0].keys()
         }
 
         if not any(required_params_present.values()):
@@ -288,6 +293,8 @@ class MultiOperateur(Operateur):
 
     def __init__(self, operateurs: list[Operateur]):
         self.operateurs = operateurs
+        self.client = self.operateurs[0].client
+        self.endpoint = self.operateurs[0].path.endpoint
 
     @property
     def action_name(self):
@@ -306,8 +313,8 @@ class MultiOperateur(Operateur):
         return tuple([op.parameters for op in self.operateurs])
 
     @property
-    def required_parameters(self):
-        return tuple([op.required_parameters for op in self.operateurs])
+    def required_parameters(self) -> tuple[dict[str, Parameter], ...]:
+        return tuple([op.required_parameters[0] for op in self.operateurs])
 
     def verify_required_args_present(self, raises=False, **kwargs):
         selected_operateur, valid = self.get_selected_operator_from_kwargs(**kwargs)
@@ -358,21 +365,75 @@ class Request:
     operateur: "Operateur"
     trys = 0
     max_retries = 2
+    response: None | Response = None
 
-    def __init__(self, client: "Client", operateur: "Operateur", data=None, files=None, timeout=3000, **url_arguments):
+    def __init__(
+        self,
+        client: "Client",
+        operateur: "Operateur",
+        data=None,
+        files=None,
+        timeout=3000,
+        details=False,
+        unpaginate=True,
+        **url_arguments,
+    ):
         self.operateur = operateur
         self.client = client
         self.url_arguments = url_arguments
-        self.data = data
+        self.input_data = data
         self.files = files
         self.headers = self.client.headers.copy()
         self.timeout = timeout
+        self.details = details
+        self.unpaginate = unpaginate
 
-        if self.operateur.rest_operation_name in ["post", "put"] and self.data is None:
+        if self.operateur.rest_operation_name in ["post", "put"] and self.input_data is None:
             raise ValueError(
                 "To create (a.k.a POST) or update (a.k.a PUT) a new element, "
                 "you need to supply the fields with the data argument"
             )
+
+        # just ensure details is false if action is retrieve, to avoid recursiveness, in case of a bug somewhere
+        # this should be unnecessary but also fixing details=False make
+        # it more clear as details=True should have no effect in retrieve mode.
+        if self.action_name == "retrieve":
+            self.details = False
+
+        self.output_data = ResponseData(self)
+
+    def copy(
+        self,
+        client: "Optional[Client]" = None,
+        operateur: "Optional[Operateur]" = None,
+        data=None,
+        files=None,
+        timeout=None,
+        details=None,
+        unpaginate=None,
+        use_original_url_arguments=True,
+        **url_arguments,
+    ):
+
+        if use_original_url_arguments:
+            arguments = self.url_arguments.copy()
+            arguments.update(**url_arguments)
+        else:
+            arguments = url_arguments
+        return Request(
+            client=client if client is not None else self.client,
+            operateur=operateur if operateur is not None else self.operateur,
+            data=data if data is not None else self.input_data,
+            files=files if files is not None else self.files,
+            timeout=timeout if timeout is not None else self.timeout,
+            details=details if details is not None else self.details,
+            unpaginate=unpaginate if unpaginate is not None else self.unpaginate,
+            **arguments,
+        )
+
+    @property
+    def action_name(self):
+        return self.operateur.action_name
 
     @property
     def url(self):
@@ -382,19 +443,22 @@ class Request:
     def request_method(self):
         return self.operateur.request_method
 
-    def get_data(self):
+    def get_input_data(self):
         if self.files is not None:
             return None
-        if isinstance(self.data, (dict, list)):
+        if isinstance(self.input_data, (dict, list)):
             self.headers["Content-Type"] = "application/json"
-            return json.dumps(self.data)
-        return self.data
+            return json.dumps(self.input_data)
+        return self.input_data
 
     def get_files(self):
         return self.files
 
     def get_response(self) -> Response:
-        data = self.get_data()
+        """This function uses ther Request object's arguments and variables to actually get a standard response.
+        It creates the appropriate url and inputs, and sends the API request.
+        The returned object is the request's response."""
+        data = self.get_input_data()
         files = self.get_files()
         logger.debug(f"Sending a request with url={self.url}, headers={self.headers}")
         r = self.request_method(
@@ -403,38 +467,29 @@ class Request:
         return r
 
     def handle(self):
-        return self.handle_response(self.get_response())
+        if self.response:
+            return self
+        self.response = self.get_response()
+        self.handle_response(self.response)
+        return self
 
-    def handle_success(self, response: Response) -> dict[str, dict | str] | list[dict[str, dict | str]]:
-        response_data = json.loads(response.text)
-        if not isinstance(response_data, dict):
-            if not isinstance(response_data, list):
-                raise NotImplementedError(
-                    f"Type of response data is {type(response_data)} - Response data : {response_data}"
-                )
-            return response_data
-        next_url = response_data.get("next", None)
-        if next_url:
-            limit_offset = UrlValidator.get_limit_offset(next_url)
-            next_request = Request(self.client, self.operateur, self.data, self.files, self.timeout, **limit_offset)
-            return response_data["results"] + next_request.handle()
-
-        if "results" in response_data.keys():
-            return response_data["results"]
-        return response_data
-
-    def handle_response(self, response: Response) -> dict[str, dict | str] | list[dict[str, dict | str]] | None:
-        action = self.client.post_request_callback(response)
+    def handle_response(self, response: Response):
+        """This function is meant to run the wrappers before or as a consequence of the response.
+        For example, ability to retry, etc"""
+        action = self.client.post_request_callback(self)
         if action:
-            if action == "retry":
+            if action == "retry" and self.trys < self.max_retries:
                 self.trys += 1
+                self.response = None
                 return self.handle()
+            elif action == "retry" and self.trys >= self.max_retries:
+                raise IOError("Maximum number of retries reached.")
             else:
                 raise NotImplementedError
         if response and response.status_code in (200, 201):
-            return self.handle_success(response)
+            return self
         elif response and response.status_code == 204:
-            return None
+            return self
         else:
             self.raise_from_response(response)
 
@@ -448,3 +503,271 @@ class Request:
         except json.decoder.JSONDecodeError:
             message = response.text
         raise requests.HTTPError(response.status_code, self.url, message, response=response)
+
+
+class ResponseData:
+
+    def __init__(self, request: "Request"):
+        self.request = request
+
+    @property
+    def status_code(self):
+        if not self.request.response:
+            raise ValueError("Cannot determine status code of a request that didn't got a response.")
+        return self.request.response.status_code
+
+    @property
+    def unpaginate(self):
+        return self.request.unpaginate
+
+    def is_paginated(self):
+        if self.raw_json and isinstance(self.raw_json, dict) and self.raw_json.get("next", None):
+            return True
+        return False
+
+    @property
+    def raw_json(self) -> dict[str, Any] | None:
+        if hasattr(self, "_raw_json"):
+            return self._raw_json
+        if not self.request.response:
+            return None
+        if self.status_code not in (200, 201):
+            return None
+
+        self._raw_json = json.loads(self.request.response.text)
+        return self._raw_json
+
+    def process_json(self) -> ResponseDataEntry | ResponseListofDataEntries | None:
+
+        if self.raw_json is None:
+            return None
+        if not isinstance(self.raw_json, dict):
+            if isinstance(self.raw_json, list):
+                # Data in this section is an unpaginated list of items (list of dicts)
+                return self.details_aggregation(self.raw_json)
+            raise NotImplementedError(f"Type of response data is {type(self.json)} - Response data : {self.json}")
+
+        if self.is_paginated():
+            # Data in this section is a paginated list of items (list of dicts)
+            if self.unpaginate:
+                return self.details_aggregation(self.raw_json["results"] + self.next_pages_as_json())
+            return self.details_aggregation(self.raw_json["results"])
+
+        # In case of last page in the pagination, is paginated will be false, but the json will still be a dict
+        if "results" in self.raw_json.keys():
+            return self.details_aggregation(self.raw_json["results"])
+
+        # data here is a dict or a scalar (inslge line of text, or number)
+        return self.raw_json
+
+    @property
+    def json(self) -> ResponseDataEntry | ResponseListofDataEntries | None:
+        if hasattr(self, "_processed_json"):
+            return self._processed_json
+        if not self.request.response:
+            return None
+        self._processed_json = self.process_json()
+        return self._processed_json
+
+    def next_page_request(self, all_pages=True):
+        if not self.is_paginated():
+            return None
+
+        next_url = cast(str, self.raw_json.get("next"))  # type: ignore
+        limit_offset = UrlValidator.get_limit_offset(next_url)
+        # unpaginate = True if all pages = True, or we just request the next page
+        next_request = self.request.copy(unpaginate=all_pages, details=False, **limit_offset)
+        return next_request
+
+    def next_page_as_json(self):
+        request = self.next_page_request(all_pages=False)
+        return request.handle().output_data.json if request else None
+
+    def next_page(self):
+        request = self.next_page_request(all_pages=False)
+        return request.handle().output_data.table if request else None
+
+    def next_pages_as_json(self):
+        request = self.next_page_request()
+        return request.handle().output_data.json if request else None
+
+    def next_pages(self):
+        request = self.next_page_request()
+        return request.handle().output_data.table if request else None
+
+    @property
+    def table(self) -> Series | DataFrame | None:
+        return self.entries_to_pandas(self.json)
+
+    def details_aggregation(self, data_entries: ResponseListofDataEntries) -> ResponseListofDataEntries:
+        """Aggregates detailed results from a list of search results by retrieving additional information
+        from a specified endpoint.
+
+        Args:
+            search_result (list[dict[str, dict | str]]): A list of dictionaries containing search results,
+            where each dictionary includes an 'id' key.
+            endpoint (str): The API endpoint from which to retrieve detailed information.
+
+        Returns:
+            list[dict[str, dict | str]]: A list of dictionaries containing detailed results retrieved
+            from the specified endpoint.
+        """
+
+        # Aggregate only if the request is set up to do so.
+        if not self.request.details:
+            return data_entries
+
+        # find the operateur correcsponding to the request done, but for the retrieve action
+        retrieve_operateur = self.request.operateur.path.endpoint.actions["retrieve"]
+
+        required_parameter_names = select_matching_required_parameters(data_entries, operateur=retrieve_operateur)
+
+        if required_parameter_names is None:
+            raise ValueError(
+                "Cannot retrieve details if the retrieve operateur " "doesn't take at least one required argument"
+            )
+        detailed_results: ResponseListofDataEntries = []
+        # make max_workers a setting of the web_client
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [
+                executor.submit(
+                    self.get_detail,
+                    result,
+                    required_parameter_names=required_parameter_names,
+                    retrieve_operateur=retrieve_operateur,
+                )
+                for result in data_entries
+            ]
+            for f in tqdm(
+                as_completed(futures),
+                total=len(data_entries),
+                delay=2,
+                desc=f"Loading {retrieve_operateur.endpoint} details",
+                file=stdout,
+            ):
+                detailed_results.append(f.result())
+        return detailed_results
+
+    def get_detail(
+        self,
+        data_entry: ResponseDataEntry,
+        required_parameter_names: list[str] | None,
+        retrieve_operateur: Operateur | None,
+    ):
+        if retrieve_operateur is None:
+            retrieve_operateur = self.request.operateur.path.endpoint.actions["retrieve"]
+        if required_parameter_names is None:
+            required_parameter_names = select_matching_required_parameters(data_entry, operateur=retrieve_operateur)
+
+        retrieve_params = {name: data_entry[name] for name in required_parameter_names}
+        request = self.request.copy(
+            operateur=retrieve_operateur, use_original_url_arguments=False, **retrieve_params  # type: ignore
+        )
+        recieved_data = request.handle().output_data.json
+        if recieved_data is None:
+            raise ValueError("Error getting details for <help code misssing>")
+        if isinstance(recieved_data, list):
+            raise TypeError("Retrieved data seems to be a list")
+        return recieved_data
+
+    def entries_to_pandas(self, data_entries: ResponseDataEntry | ResponseListofDataEntries | None):
+        """Converts the results from a request into a pandas DataFrame or Series.
+
+        This method takes a request result, which can be a list of dictionaries or a single dictionary,
+        and converts it into a pandas DataFrame or Series. If the input is a list, it returns a DataFrame.
+        If the input is a dictionary, it extracts the 'id' field and returns a Series with the remaining data.
+        If the input is neither a list nor a dictionary, it raises a NotImplementedError.
+
+        Args:
+            request_result (dict[str, dict | str] | list[dict[str, dict | str]] | None):
+                The result from a request, which can be a list of dictionaries, a single dictionary, or None.
+
+        Returns:
+            DataFrame or Series:
+                A pandas DataFrame if the input is a list, or a pandas Series if the input is a dictionary.
+
+        Raises:
+            TypeError:
+                If the 'id' field in the dictionary is not a string.
+            NotImplementedError:
+                If the input is neither a list nor a dictionary.
+        """
+        if data_entries is None:
+            return None
+
+        retrieve_operateur = self.request.operateur.endpoint.actions["retrieve"]
+
+        if isinstance(data_entries, list):
+            required_parameters = select_matching_required_parameters(data_entries, operateur=retrieve_operateur)
+            table = recursively_pandify_items(data_entries)
+
+            if required_parameters:
+                table = table.reset_index().set_index(required_parameters)
+            return table
+        elif isinstance(data_entries, dict):
+            return recursively_pandify_items(data_entries)
+        else:
+            raise NotImplementedError(f"Type was not list or dict : {type(data_entries)}")
+
+
+def recursively_pandify_items(data_entries: ResponseDataEntry | ResponseListofDataEntries):
+    if isinstance(data_entries, list):
+        table = DataFrame(data_entries)
+        for column in table.columns:
+            if not isinstance(table[column].iloc[0], list):
+                continue
+
+            are_list_of_dict = any(
+                [
+                    all([isinstance(item, dict) for item in table_item])
+                    for table_item in table[column]
+                    if len(table_item)
+                ]
+            )
+            if not are_list_of_dict:
+                continue
+
+            try:
+                pandified_column = table[column].apply(recursively_pandify_items)  # type: ignore
+            except Exception as e:
+                logger.debug(f"Error pandifying column {column}. Skipping. {type(e)} - {e}")
+                continue
+            table[column] = pandified_column
+        if len(table) and "id" in table.columns:
+            table = table.set_index("id")
+        return table
+    elif isinstance(data_entries, dict):
+        id = data_entries.pop("id", None)
+        if not isinstance(id, str):
+            raise TypeError(f"ID of a recieved object must be a string, but alyx server returned a {type(id)} - {id=}")
+        return Series(data_entries, name=id)
+    else:
+        raise NotImplementedError(f"Type was not list or dict : {type(data_entries)}")
+
+
+def select_matching_required_parameters(
+    data_entries: ResponseDataEntry | ResponseListofDataEntries, operateur: Operateur
+):
+
+    if isinstance(data_entries, list):
+        if len(data_entries):
+            data_entry = data_entries[0]
+        else:
+            return None
+    elif isinstance(data_entries, dict):
+        if not len(data_entries):
+            return None
+    else:
+        raise TypeError("Expected list or dict")
+
+    data_entry = data_entries[0] if isinstance(data_entries, list) else data_entries
+
+    for parameter_combination in operateur.required_parameters:
+        if all([parameter_name in data_entry.keys() for parameter_name in parameter_combination.keys()]):
+            return list(parameter_combination.keys())
+    # TODO : in case where several possibilities are ok, try to match first according to priority list :
+    # name first, id otherwise, and something else, if something else exists
+
+    # no parameter combination necessary was found in the data_entry_based
+    # on the selected operateur required parameters
+    return None

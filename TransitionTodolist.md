@@ -196,3 +196,18 @@ import warnings
 warnings.warn("one.ONE is deprecated, use alyx_connector.ONE",
               DeprecationWarning, stacklevel=2)
 ```
+
+Other things to do :
+
+- Check all filters accuracy for sessions (server side + standardisation of how to pass lists, dict, etc, in url format)
+- Implement standardized all_of, any_of, none_of, etc, for field filtering (server side)
+- Reduce number of items sent by dataset related to session listing, keeping only what makes sense (server side)
+- Keep sending all info when retrieving datasets
+- Verify push / pull files still works correctly
+- Verify registration works correctly
+- Implement registration rules table or just add it as a "note" in the notes table, in the json field
+- Lorenzo wanted actions to be done as rules (like link dataset types, for them to match length, etc). Probably too long / complex for short term
+- Implement local side parsing of the schema.json file (for the connector's disconnected mode)
+- Implement, using the schema.json, and pickle / parquet tables, local data cache (for fast access, and for disconnected mode)
+- The cache is updated simply by downloading the tables from the endpoint, or when making a request, by inserting newest data into the files (as the tables are updated only daily, server side)
+- Using an url-api cache too ? (for less url requests ?)
