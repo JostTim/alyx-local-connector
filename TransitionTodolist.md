@@ -87,37 +87,37 @@
 
 ## Alyx-Connector Migration Checklist
 
-| ✓   | Original Code Example                                                                 | New Syntax                                                                    | Comments                               |
-| --- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------- |
+| ✓   | Original Code Example                                                                 | New Syntax                                                                    | Comments                                                                 |
+| --- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 |     | **Import Surface**                                                                    |
-| ✅  | `from one import ONE`                                                                 | `from alyx_connector import Connector`                                        | Shim module required                   |
-| ✅  | `from one.api import ONE`                                                             | `from alyx_connector import Connector`                                        | Shim module required                   |
+| ✅  | `from one import ONE`                                                                 | `from alyx_connector import Connector`                                        | Renamed but equivalent                                                   |
+| ✅  | `from one.api import ONE`                                                             | `from alyx_connector import Connector`                                        | Renamed but equivalent                                                   |
 |     | **Connector Construction**                                                            |
-| ◻️  | `connector = one.ONE(base_url=..., data_access_mode=..., mode=...)`                   | `connector = Connector(url=..., cache_mode=...)`                              | Map `base_url→host`, `mode→cache_mode` |
+| ◻️  | `connector = one.ONE(base_url=..., data_access_mode=..., mode=...)`                   | `connector = Connector(url=..., cache_mode=...)`                              | Map `base_url→host`, `mode→cache_mode`                                   |
 |     | **Session Search**                                                                    |
-| ◻️  | `connector.search(subject=..., exclude_procedures=..., date_range=..., details=True)` | Same syntax                                                                   | Requires filter translation layer      |
-| ◻️  | `sessions = connector.search(subject="mouse12", date_range="2023-05-12")`             | Same syntax                                                                   | Implicit details=True                  |
-| ◻️  | `session_id = connector.to_eid(session_label)`                                        | `session_id = connector.sessions.id_from_label(label)`                        | More explicit method name              |
+| ◻️  | `connector.search(subject=..., exclude_procedures=..., date_range=..., details=True)` | Same syntax                                                                   | Requires filter translation layer                                        |
+| ◻️  | `sessions = connector.search(subject="mouse12", date_range="2023-05-12")`             | Same syntax                                                                   | Implicit details=True                                                    |
+| ◻️  | `session_id = connector.to_eid(session_label)`                                        | ❌​                                                                           | Deprecated (not needed since name can be used too as a retrieving field) |
 |     | **Dataset Operations**                                                                |
-| ◻️  | `connector.list_datasets(session, object="imaging", attribute="fieldOfView")`         | `connector.datasets.list(session, object="imaging", attribute="fieldOfView")` | Namespaced under `datasets`            |
-| ◻️  | `tiff_files = cnx.list_datasets(..., as_mode=..., query_type=...)`                    | `tiff_files = cnx.datasets.list(..., access_mode=..., query=...)`             | Parameter rename                       |
+| ◻️  | `connector.list_datasets(session, object="imaging", attribute="fieldOfView")`         | `connector.datasets.list(session, object="imaging", attribute="fieldOfView")` | Namespaced under `datasets`                                              |
+| ◻️  | `tiff_files = cnx.list_datasets(..., as_mode=..., query_type=...)`                    | `tiff_files = cnx.datasets.list(..., access_mode=..., query=...)`             | Parameter rename                                                         |
 |     | **ALF Path Utilities**                                                                |
-| ◻️  | `from one.alf.spec import to_alf`<br>`filename = to_alf("mask", ...)`                 | `from alyx_connector.alf import to_alf`<br>Same syntax                        | Copied to new package                  |
-| ◻️  | `one.alf.spec.is_valid(filepath)`                                                     | `alyx_connector.alf.is_valid(filepath)`                                       | Copied verbatim                        |
-| ◻️  | `one.alf.files.get_session_path(filepath)`                                            | `alyx_connector.paths.session_path(filepath)`                                 | Renamed for clarity                    |
+| ◻️  | `from one.alf.spec import to_alf`<br>`filename = to_alf("mask", ...)`                 | `from alyx_connector.alf import to_alf`<br>Same syntax                        | Copied to new package                                                    |
+| ◻️  | `one.alf.spec.is_valid(filepath)`                                                     | `alyx_connector.alf.is_valid(filepath)`                                       | Copied verbatim                                                          |
+| ◻️  | `one.alf.files.get_session_path(filepath)`                                            | `alyx_connector.paths.session_path(filepath)`                                 | Renamed for clarity                                                      |
 |     | **REST Operations**                                                                   |
-| ◻️  | `connector.alyx.rest("sessions", "partial_update", id=...)`                           | `connector.alyx.patch(f"sessions/{id}", data=...)`                            | HTTP verb methods                      |
-| ◻️  | `connector.alyx.json_field_update(...)`                                               | `connector.sessions.update_json_field(...)`                                   | Higher-level helper                    |
-| ◻️  | `connector.alyx.rest("tasks", "create", data=data)`                                   | `connector.tasks.create(data)`                                                | Namespaced under `tasks`               |
+| ◻️  | `connector.alyx.rest("sessions", "partial_update", id=...)`                           | `connector.alyx.patch(f"sessions/{id}", data=...)`                            | HTTP verb methods                                                        |
+| ◻️  | `connector.alyx.json_field_update(...)`                                               | `connector.sessions.update_json_field(...)`                                   | Higher-level helper                                                      |
+| ◻️  | `connector.alyx.rest("tasks", "create", data=data)`                                   | `connector.tasks.create(data)`                                                | Namespaced under `tasks`                                                 |
 |     | **Session Helpers**                                                                   |
-| ◻️  | `from one.api import MultiSessionPlaceholder`                                         | `from project_utils import MultiSessionPlaceholder`                           | Moved to project-specific utils        |
-| ◻️  | `session.alyx.session.local_mode()`                                                   | _Deprecated_                                                                  | Replaced by cache configuration        |
+| ◻️  | `from one.api import MultiSessionPlaceholder`                                         | `from project_utils import MultiSessionPlaceholder`                           | Moved to project-specific utils                                          |
+| ◻️  | `session.alyx.session.local_mode()`                                                   | _Deprecated_                                                                  | Replaced by cache configuration                                          |
 |     | **File Registration**                                                                 |
-| ◻️  | `connector.register.files(session, files_list)`                                       | `connector.files.register(session, paths=files_list)`                         | Namespaced under `files`               |
-| ◻️  | `destination_path = add_uuid_string(...)`                                             | Same syntax                                                                   | Utility copied verbatim                |
+| ◻️  | `connector.register.files(session, files_list)`                                       | `connector.files.register(session, paths=files_list)`                         | Namespaced under `files`                                                 |
+| ◻️  | `destination_path = add_uuid_string(...)`                                             | Same syntax                                                                   | Utility copied verbatim                                                  |
 |     | **Metadata Helpers**                                                                  |
-| ◻️  | `connector.path2ref(session_id)`                                                      | `connector.sessions.ref_from_id(session_id)`                                  | More explicit naming                   |
-| ◻️  | `session_details = cnx.to_session_details(...)`                                       | `session_details = SessionDetail(...)`                                        | Now returns dataclass                  |
+| ◻️  | `connector.path2ref(session_id)`                                                      | `connector.sessions.ref_from_id(session_id)`                                  | More explicit naming                                                     |
+| ◻️  | `session_details = cnx.to_session_details(...)`                                       | `session_details = SessionDetail(...)`                                        | Now returns dataclass                                                    |
 
 ### Key Changes Summary:
 
