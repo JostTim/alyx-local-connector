@@ -1,19 +1,16 @@
-import requests, json
-from requests.models import Response
+import requests
 from requests import HTTPError
 from datetime import timedelta
 from logging import getLogger
 from abc import ABC, abstractmethod
 from rich.prompt import Prompt
-from sys import stdout
-from tqdm import tqdm
 from pandas import DataFrame, Series
 
 from ..utils.configuration import Configuration
 from .urls import UrlValidator
-from .api import EndpointUrl, Endpoint, APISpecification, OpenAPISpecification, Request, Operateur
+from .api import EndpointUrl, Endpoint, APISpecification, OpenAPISpecification, Request
 
-from typing import Optional, Type, TypeVar, Generic, Literal, List, Dict, Any, cast, overload
+from typing import Optional, Type, TypeVar, Generic, Literal, overload
 
 Specification = TypeVar("Specification", bound=APISpecification)
 
@@ -161,23 +158,23 @@ class Client(ABC, Generic[Specification]):
         # else, we assume the user wanted to list instead, after here
         return self.list(endpoint=endpoint, details=details, **kwargs)
 
-    def list(self, *, endpoint: str, details=True, **kwargs) -> DataFrame | Series | None:
+    def list(self, endpoint: str, *, details=True, **kwargs) -> DataFrame | Series | None:
         results = self.rest(endpoint, "list", details=details, **kwargs)
         return results
 
-    def create(self, *, endpoint: str, data: dict, **kwargs) -> DataFrame | Series | None:
+    def create(self, endpoint: str, *, data: dict, **kwargs) -> DataFrame | Series | None:
         result = self.rest(endpoint, "create", data=data, **kwargs)
         return result
 
-    def retrieve(self, *, endpoint: str, **kwargs) -> Series | None:
+    def retrieve(self, endpoint: str, **kwargs) -> Series | None:
         result = self.rest(endpoint, "retrieve", **kwargs)
         return result
 
-    def update(self, *, endpoint: str, data: dict, **kwargs) -> DataFrame | Series | None:
+    def update(self, endpoint: str, *, data : dict, **kwargs) -> DataFrame | Series | None:
         result = self.rest(endpoint, "update", data=data, **kwargs)
         return result
 
-    def destroy(self, *, endpoint: str, **kwargs) -> DataFrame | Series | None:
+    def destroy(self, endpoint: str, **kwargs) -> DataFrame | Series | None:
         result = self.rest(endpoint, "destroy", **kwargs)
         return result
 
@@ -248,7 +245,7 @@ class ClientWithAuth(Client):
             password = self.ask_password()
 
         try:
-            rep = requests.post(self.url + "/auth-token", data={"username": self.username, "password": password})
+            rep = requests.post(self.url + "/api/auth-token", data={"username": self.username, "password": password})
         except requests.exceptions.ConnectionError:
             raise ConnectionError(
                 f"Can't connect to {self.url}.\n" + "Check your internet connections and Alyx database firewall"

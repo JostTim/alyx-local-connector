@@ -1,7 +1,11 @@
+import json
+import re
+import requests
+
 from openapi_parser.specification import Operation, Specification, Parameter, Path as OpenAPIPath
 from openapi_parser import parse as parse_openapi_schema
 from openapi_parser.errors import ParserError
-import json, re, requests
+
 from requests.models import Response
 from urllib.parse import urlencode, quote
 from logging import getLogger
@@ -15,10 +19,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from ..utils.logging import filter_message
 from .urls import UrlValidator
 
-from typing import Any, Dict, Tuple, List, Optional, Protocol, TypeAlias, NoReturn, overload, cast, TYPE_CHECKING
+from typing import Any, Dict, Tuple, List, Optional, Protocol, TypeAlias, cast, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .clients import ClientWithAuth, Client
+    from .clients import Client
 
 logger = getLogger("alyx_connector.client")
 
@@ -166,9 +170,25 @@ class Endpoint:
 
     @property
     def routes(self):
-        search_path = self.path.replace("/", r"\/")
-        pattern = re.compile(rf"^{search_path}(?:(?=\/{{).*)?$")
-        return [EndpointUrl(key, self.client) for key in self.client.schema.paths_dict.keys() if pattern.match(key)]
+        """The role of this property is to search through the schema, 
+        to find the path listed there, that contain the current endpoint.
+        For example, if the endpoint path is an EndpointUrl with value /sessions,
+        and the schema lists :
+        - /api/sessions
+        - /sessions/{name}
+        - /api/sessions/{id}
+        These three will be recognized, and added to the routes.
+        The routes can then be dissected into actions, see the actions property for that.
+        (several routes for an identical action can exist).
+        """
+        search_path = self.path
+        pattern_string = rf"^(?:{search_path}|[\w/-]+{search_path})(?:(?=/{{).*)?$"
+        pattern = re.compile(pattern_string)
+        return [
+            EndpointUrl(key, self.client) 
+            for key in self.client.schema.paths_dict.keys() 
+            if pattern.match(key)
+            ]
 
     @property
     def actions(self) -> Dict[str, "Operateur"]:
