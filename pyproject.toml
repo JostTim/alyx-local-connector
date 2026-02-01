@@ -1,7 +1,3 @@
-[build-system]
-requires = ["pdm-backend"]
-build-backend = "pdm.backend"
-
 [project]
 name = "alyx-connector"
 authors = [
@@ -38,6 +34,10 @@ documentation = "https://gitlab.pasteur.fr/haisslab/data-management/ONE"
 docs = ["mkdocs-material>=9.6.12"]
 tests = ["pytest-cov>=6.2.1", "responses>=0.25.7"]
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [tool.pytest.ini_options]
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb --cov-report xml --cov=alyx_connector --junitxml=pytest_results.xml --cov-config=pyproject.toml"
 testpaths = ["tests"]
@@ -49,10 +49,6 @@ omit = [".venv/*", ".vscode/*", ".tests/*"]
 source = "file"
 path = "src/alyx_connector/__init__.py"
 
-[tool.pdm.dev-dependencies]
-dev = [
-    "-e file:///C:/Users/tjostmou/Documents/Python/__packages__/ONE-registrator#egg=alyx-registrator",
-]
 [tool.flake8]
 exclude = [
     ".git",
