@@ -38,6 +38,10 @@ tests = ["pytest-cov>=6.2.1", "responses>=0.25.7"]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.version]
+path = "src/alyx_connector/__init__.py"
+variable = "__version__"
+
 [tool.pytest.ini_options]
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb --cov-report xml --cov=alyx_connector --junitxml=pytest_results.xml --cov-config=pyproject.toml"
 testpaths = ["tests"]
