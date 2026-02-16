@@ -721,18 +721,18 @@ class ResponseData:
 
         if isinstance(data_entries, list):
             required_parameters = select_matching_required_parameters(data_entries, operateur=retrieve_operateur)
-            table = recursively_pandify_items(data_entries)
+            table = recursively_pandify_items(data_entries, top=True)
 
             if required_parameters:
                 table = table.reset_index().set_index(required_parameters)
             return table
         elif isinstance(data_entries, dict):
-            return recursively_pandify_items(data_entries)
+            return recursively_pandify_items(data_entries, top=True)
         else:
             raise NotImplementedError(f"Type was not list or dict : {type(data_entries)}")
 
 
-def recursively_pandify_items(data_entries: ResponseDataEntry | ResponseListofDataEntries):
+def recursively_pandify_items(data_entries: ResponseDataEntry | ResponseListofDataEntries, top:bool=False):
     if isinstance(data_entries, list):
         table = DataFrame(data_entries)
         for column in table.columns:
@@ -755,12 +755,14 @@ def recursively_pandify_items(data_entries: ResponseDataEntry | ResponseListofDa
                 logger.debug(f"Error pandifying column {column}. Skipping. {type(e)} - {e}")
                 continue
             table[column] = pandified_column
-        if len(table) and "id" in table.columns:
+        if not len(table):
+            return table
+        if "id" in table.columns:
             table = table.set_index("id")
-        elif len(table) and "name" in table.columns:
+        elif "name" in table.columns:
             table = table.set_index("name")
-        else :
-            logger.warning("Found neither an `id` or a `name` in the returned data table.")
+        elif top :
+            logger.warning(f"Found neither an `id` or a `name` in the returned data table. Columns : {table.columns=}")
         return table
     elif isinstance(data_entries, dict):
         if data_entries.get("name") is not None :
