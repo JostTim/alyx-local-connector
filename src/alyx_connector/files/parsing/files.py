@@ -1,5 +1,5 @@
 from pathlib import Path
-from re import split, compile
+from re import compile
 from uuid import UUID as OriginalUUID
 from datetime import datetime
 from pandas import Series
@@ -54,7 +54,7 @@ class UUID(OriginalUUID):
         try:
             uuid = cls.from_any(value)
             return uuid.version in versions
-        except Exception as e:
+        except Exception :
             return False
 
 

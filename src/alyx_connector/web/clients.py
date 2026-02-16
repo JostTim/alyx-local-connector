@@ -189,7 +189,7 @@ class Client(ABC, Generic[Specification]):
     #         return self.rest(endpoint_name, "retrieve", **kwargs)
     #     return self.rest(endpoint_name, "list", **kwargs)
 
-    def search(self, *, endpoint: str, details=True, **kwargs):
+    def search(self, *, endpoint: str, details=True, **kwargs) -> Series | DataFrame | None:
         """Search for items in a specified endpoint.
 
         This method allows you to search for items in a given endpoint, with the option to retrieve details for a
@@ -212,16 +212,19 @@ class Client(ABC, Generic[Specification]):
 
         # no argument for the given action is present, we assume the user wanted to list instead.
 
-        if self.endpoint(endpoint).implements_retrieve and self.endpoint(endpoint).action(
-            "retrieve"
-        ).verify_required_args_present(**kwargs):
+        if ((self.endpoint(endpoint)
+                .implements_retrieve) and 
+            (self.endpoint(endpoint)
+                .action("retrieve")
+                .verify_required_args_present(**kwargs))
+            ):
             # if the required arguments for retrieve are present, we do the retrieve here.
             return self.retrieve(endpoint=endpoint, details=details, **kwargs)
 
         # else, we assume the user wanted to list instead, after here
         return self.list(endpoint=endpoint, details=details, **kwargs)
 
-    def list(self, endpoint: str, *, details=True, **kwargs) -> DataFrame | Series | None:
+    def list(self, endpoint: str, *, details=True, **kwargs) -> DataFrame | None:
         results = self.rest(endpoint, "list", details=details, **kwargs)
         return results
 

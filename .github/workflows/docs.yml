@@ -18,12 +18,12 @@ jobs:
         with:
           python-version: 3.x
       - run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV
-      - uses: pdm-project/setup-pdm@v4
+      - uses: astral-sh/setup-uv@v7
       - uses: actions/cache@v4
         with:
           key: mkdocs-material-${{ env.cache_id }}
           path: .cache 
           restore-keys: |
             mkdocs-material-
-      - run: pdm sync -G docs --prod
-      - run: pdm run mkdocs gh-deploy --config-file ./docs/mkdocs.yml --force
+      - run: uv sync --group docs
+      - run: uv run mkdocs gh-deploy --config-file ./docs/mkdocs.yml --force

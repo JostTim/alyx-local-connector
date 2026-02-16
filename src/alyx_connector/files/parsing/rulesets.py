@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, List, Dict, Tuple, Optional, Union, Callable, Protocol, Iterator, cast
 

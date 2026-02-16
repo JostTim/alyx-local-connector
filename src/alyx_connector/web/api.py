@@ -169,7 +169,7 @@ class Endpoint:
         return True if self.routes else False
 
     @property
-    def routes(self):
+    def routes(self) -> list[EndpointUrl]:
         """The role of this property is to search through the schema, 
         to find the path listed there, that contain the current endpoint.
         For example, if the endpoint path is an EndpointUrl with value /sessions,
@@ -191,7 +191,7 @@ class Endpoint:
             ]
 
     @property
-    def actions(self) -> Dict[str, "Operateur"]:
+    def actions(self) -> dict[str, "Operateur"]:
 
         actions_dict: dict[str, list] = {}
         for route in self.routes:
@@ -207,12 +207,12 @@ class Endpoint:
         }
 
     @property
-    def implements_retrieve(self):
+    def implements_retrieve(self) -> bool:
         if "retrieve" in self.actions.keys():
             return True
         return False
 
-    def action(self, action_name: str):
+    def action(self, action_name: str) -> "Operateur":
         return self.actions[action_name]
 
     def assert_exists(self):
@@ -391,11 +391,11 @@ class Request:
         self,
         client: "Client",
         operateur: "Operateur",
-        data=None,
-        files=None,
-        timeout=3000,
-        details=False,
-        unpaginate=True,
+        data : Optional[dict | list | str]=None,
+        files : Optional[Any] = None,
+        timeout : Optional[int] = 3000,
+        details : bool = False,
+        unpaginate : bool = True,
         **url_arguments,
     ):
         self.operateur = operateur
@@ -460,10 +460,10 @@ class Request:
         return self.operateur.make_url(**self.url_arguments)
 
     @property
-    def request_method(self):
+    def request_method(self) -> RequestFunction:
         return self.operateur.request_method
 
-    def get_input_data(self):
+    def get_input_data(self) -> str | None:
         if self.files is not None:
             return None
         if isinstance(self.input_data, (dict, list)):
@@ -486,7 +486,7 @@ class Request:
         )
         return r
 
-    def handle(self):
+    def handle(self) -> "Request":
         if self.response:
             return self
         self.response = self.get_response()
@@ -526,6 +526,8 @@ class Request:
 
 
 class ResponseData:
+
+    request : "Request"
 
     def __init__(self, request: "Request"):
         self.request = request
@@ -577,7 +579,7 @@ class ResponseData:
         if "results" in self.raw_json.keys():
             return self.details_aggregation(self.raw_json["results"])
 
-        # data here is a dict or a scalar (inslge line of text, or number)
+        # data here is a dict or a scalar (string, or number)
         return self.raw_json
 
     @property

@@ -30,7 +30,7 @@ class _NoAliasEnumMeta(_EnumMeta):
     """
 
     @classmethod
-    def __prepare__(metacls, cls, bases):
+    def __prepare__(metacls, cls:str, bases:tuple[type, ...], **kwds) -> _EnumDict:
         classdict = _EnumDict()
         classdict._cls_name = cls  # type: ignore
         return classdict

@@ -163,7 +163,7 @@ class FileTransferManager:
         for destination, metric in transfer_destinations:
 
             destination = str(destination)
-            sources = ", ".join(metric.source.astype(str))  # type: ignore
+            sources = ", ".join(metric.source.astype(str))
             transfer_space = metric.transfer_space.sum()
             free_space = metric.free_space.iloc[0]
 
@@ -238,7 +238,7 @@ class FileTransferManager:
         self._assert_file_checked("status")
 
         transfers_infos = []
-        for (source, destination), transfers in self.results.groupby(["source_volume", "destination_volume"]):
+        for (source, destination), transfers in self.results.groupby(by=["source_volume", "destination_volume"]):
             free_space = shutil.disk_usage(destination).free * Quantity("bytes")
 
             transfered_files = transfers[transfers["decision"] == "transfer"]

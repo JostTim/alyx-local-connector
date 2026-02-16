@@ -13,13 +13,13 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - uses: pdm-project/setup-pdm@v3
+      - uses: astral-sh/setup-uv@v7
 
       - name: Install dependencies
-        run: pdm sync --prod -G tests
+        run: uv sync --group tests
 
       - name: Run tests
-        run: pdm run pytest
+        run: uv run pytest
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
