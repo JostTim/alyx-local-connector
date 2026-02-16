@@ -1,14 +1,12 @@
 from logging import getLogger
 from pandas import DataFrame, Series
-from sys import stdout
-from tqdm import tqdm
 
 from ..utils.types import Singleton
+from ..utils.configuration import Configuration
 from ..utils.render_classes import obfuscate
 from ..web.clients import WebClient
 from ..files.registration.rules_config import Config
 
-from typing import overload, Optional, NoReturn
 
 logger = getLogger(__name__)
 
@@ -43,10 +41,19 @@ class Connector(metaclass=Singleton):
 
     _singleton_no_argument_only = True
 
-    def __init__(self, url=None, username=None, auto_authenticate=True, make_default=False):
+    config : Configuration
+    web_client : WebClient
 
+    def __init__(self, url=None, username=None, auto_authenticate=True, make_default=None, use_default=True):
+
+        self.config = Configuration(parent_connector=self)
         self.web_client = WebClient(
-            url=url, username=username, auto_authenticate=auto_authenticate, make_default=make_default
+            url=url, 
+            username=username, 
+            parent_connector=self,
+            auto_authenticate=auto_authenticate, 
+            make_default=make_default,
+            use_default=use_default
         )
 
     @property
@@ -57,11 +64,43 @@ class Connector(metaclass=Singleton):
     def url(self):
         return self.web_client.url
 
+    # @staticmethod
+    # def setup(*args, **kwargs):
+    #     web_client = WebClient.setup_user(*args, parent_connector=self, **kwargs)
+    #     web_client.config.current_user_config.make_all_default()
+    #     return Connector(web_client.url, web_client.username)
+
     @staticmethod
-    def setup(*args, **kwargs):
-        web_client = WebClient.setup_user(*args, **kwargs)
-        web_client.config.current_user_config.make_all_default()
-        return Connector(web_client.url, web_client.username)
+    def setup(
+        url=None, 
+        username=None, 
+        auto_authenticate=True, 
+        make_default=None, 
+        silent=False, 
+        password=None, 
+        **user_options
+        ) -> "Connector":
+
+        if silent and (url is None or username is None):
+            raise ValueError("If you require for a silent setup (no prompt), you must supply both url and username.")
+            # Note that here, if you ask for silent setup and not password already exists for tht user, 
+            # it will raise but this will be the responsability of the authenticate method.
+        connector = Connector(use_default=False)
+        connector.web_client.select_user(
+            url=url,
+            username=username,
+            auto_authenticate=auto_authenticate,
+            make_default=make_default,
+            password=password,
+            silent=silent,
+            force_prompt=True, 
+                # if some fields are left to None, then we ask
+                # for the value instead of using the defaults, 
+                # as this is the setup method, not the standard 
+                # Connector() quick instanciator method
+            **user_options
+        )
+        return connector
 
     def search(self, endpoint="sessions", details=True, raises=True, **kwargs) -> DataFrame | Series | None:
         search_result = self.web_client.search(endpoint=endpoint, details=details, **kwargs)
@@ -69,7 +108,7 @@ class Connector(metaclass=Singleton):
             self.raise_if_search_empty(search_result)
         return search_result
 
-    def register(self, session_or_sessions=DataFrame | Series):
+    def register(self, session_or_sessions : DataFrame | Series):
         if isinstance(session_or_sessions, Series):
             return Config(connector=self, session=session_or_sessions)
         for _, session in session_or_sessions.iterrows():

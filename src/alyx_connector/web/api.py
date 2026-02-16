@@ -681,14 +681,16 @@ class ResponseData:
 
         retrieve_params = {name: data_entry[name] for name in required_parameter_names}
         request = self.request.copy(
-            operateur=retrieve_operateur, use_original_url_arguments=False, **retrieve_params  # type: ignore
+            operateur=retrieve_operateur, use_original_url_arguments=False, **retrieve_params
         )
-        recieved_data = request.handle().output_data.json
+        recieved_data = cast(None | dict | list, request.handle().output_data.json)
         if recieved_data is None:
-            raise ValueError("Error getting details for <help code misssing>")
+            raise ValueError(f"Error getting details for {self.request.operateur.path.endpoint.path}")
         if isinstance(recieved_data, list):
             raise TypeError("Retrieved data seems to be a list")
-        return recieved_data
+        final_data = data_entry.copy()
+        final_data.update(recieved_data)
+        return final_data
 
     def entries_to_pandas(self, data_entries: ResponseDataEntry | ResponseListofDataEntries | None):
         """Converts the results from a request into a pandas DataFrame or Series.
@@ -748,19 +750,29 @@ def recursively_pandify_items(data_entries: ResponseDataEntry | ResponseListofDa
                 continue
 
             try:
-                pandified_column = table[column].apply(recursively_pandify_items)  # type: ignore
+                pandified_column = table[column].apply(recursively_pandify_items)
             except Exception as e:
                 logger.debug(f"Error pandifying column {column}. Skipping. {type(e)} - {e}")
                 continue
             table[column] = pandified_column
         if len(table) and "id" in table.columns:
             table = table.set_index("id")
+        elif len(table) and "name" in table.columns:
+            table = table.set_index("name")
+        else :
+            logger.warning("Found neither an `id` or a `name` in the returned data table.")
         return table
     elif isinstance(data_entries, dict):
-        id = data_entries.pop("id", None)
-        if not isinstance(id, str):
-            raise TypeError(f"ID of a recieved object must be a string, but alyx server returned a {type(id)} - {id=}")
-        return Series(data_entries, name=id)
+        if data_entries.get("name") is not None :
+            series_name = data_entries.pop("name", None)
+        elif data_entries.get("id") is not None :
+            series_name = data_entries.pop("id", None)
+            if not isinstance(series_name, str) :
+                raise TypeError(f"ID of a recieved object must be a string, but alyx server returned a {type(series_name)} - {series_name=}")
+        else :
+            logger.warning("Found neither an `id` or a `name` in the returned data item.")
+            series_name = None
+        return Series(data_entries, name=series_name)
     else:
         raise NotImplementedError(f"Type was not list or dict : {type(data_entries)}")
 

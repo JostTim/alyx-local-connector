@@ -30,5 +30,5 @@ def create_file_for_session(session: Series):
 
     file_path = Path(session.path) / f"session_{session.u_alias}_data.nwb"
 
-    with NWBHDF5IO(file_path, "w") as io:  # type: ignore
-        io.write(nwbfile)  # type: ignore
+    with NWBHDF5IO(file_path, "w") as io: 
+        io.write(nwbfile)

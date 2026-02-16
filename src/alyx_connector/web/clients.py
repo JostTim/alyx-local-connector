@@ -10,7 +10,10 @@ from ..utils.configuration import Configuration
 from .urls import UrlValidator
 from .api import EndpointUrl, Endpoint, APISpecification, OpenAPISpecification, Request
 
-from typing import Optional, Type, TypeVar, Generic, Literal, overload
+from typing import Optional, Type, TypeVar, Generic, Literal, overload, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..connector.core import Connector
 
 Specification = TypeVar("Specification", bound=APISpecification)
 
@@ -86,6 +89,66 @@ class Client(ABC, Generic[Specification]):
     def endpoint_exists(self, path: str) -> bool:
         return self.endpoint(path).exists()
 
+    @overload
+    def rest(
+        self,
+        endpoint_name: str,
+        action: Literal["list"] = "list",
+        timeout: int = 1000,
+        handles_internally: Literal[True] = True,
+        **kwargs,
+    ) -> DataFrame | None: ...
+
+    @overload
+    def rest(
+        self,
+        endpoint_name: str,
+        action: Literal["retrieve"] = "retrieve",
+        timeout: int = 1000,
+        handles_internally: Literal[True] = True,
+        **kwargs,
+    ) -> Series | None: ...
+
+    @overload
+    def rest(
+        self,
+        endpoint_name: str,
+        action: Literal["update"] = "update",
+        timeout: int = 1000,
+        handles_internally: Literal[True] = True,
+        **kwargs,
+    ) -> Series | None: ...
+
+    @overload
+    def rest(
+        self,
+        endpoint_name: str,
+        action: Literal["create"] = "create",
+        timeout: int = 1000,
+        handles_internally: Literal[True] = True,
+        **kwargs,
+    ) -> Series | None: ...
+
+    @overload
+    def rest(
+        self,
+        endpoint_name: str,
+        action: Literal["destroy"] = "destroy",
+        timeout: int = 1000,
+        handles_internally: Literal[True] = True,
+        **kwargs,
+    ) -> None: ...
+
+    @overload
+    def rest(
+        self,
+        endpoint_name: str,
+        action: Literal["partial_update"] = "partial_update",
+        timeout: int = 1000,
+        handles_internally: Literal[True] = True,
+        **kwargs,
+    ) -> Series | None: ...
+    
     @overload
     def rest(
         self,
@@ -300,10 +363,57 @@ class ClientWithConfig(ClientWithAuth):
         url: Optional[str] = None,
         username: Optional[str] = None,
         *,
+        parent_connector: "Connector",
         auto_authenticate=True,
         make_default=False,
+        use_default=True,
     ):
-        self.select_user(url=url, username=username, auto_authenticate=auto_authenticate, make_default=make_default)
+        self.parent_connector = parent_connector
+        if use_default:
+            self.select_user(url=url, username=username, auto_authenticate=auto_authenticate, make_default=make_default)
+
+    # @classmethod
+    # def from_config(cls, config: Configuration, *, auto_authenticate=True) -> "ClientWithConfig":
+    #     client = cls(
+    #         url=config.url, 
+    #         username=config.username, 
+    #         parent_connector=config.parent_connector,
+    #         auto_authenticate=auto_authenticate, 
+    #         )
+    #     return client
+
+    # @classmethod
+    # def setup_user(
+    #     cls,
+    #     url: Optional[str] = None,
+    #     username: Optional[str] = None,
+    #     password: Optional[str] = None,
+    #     *,
+    #     parent_connector:"Connector",
+    #     make_default: Optional[bool] = None,
+    #     silent: Optional[bool] = False,
+    #     force_prompt=True,
+    #     **user_options,
+    # ) -> "ClientWithConfig" :
+    #     url = UrlValidator.validate_url(url) if url is not None else url
+    #     config = parent_connector.config
+    #     config.select_current_user_config(
+    #         server_address=url, username=username, silent=silent, force_prompt=force_prompt, make_default=make_default
+    #     )
+    #     client = cls.from_config(config, auto_authenticate=False)
+    #     client.authenticate(password=password)
+    #     client.config.current_user_config.set_options(**user_options)
+    #     return client
+
+    @property
+    def config(self) -> Configuration:
+        if not hasattr(self, "_config"):
+            self._conf = self.parent_connector.config
+        return self._conf
+
+    @config.setter
+    def config(self, conf: Configuration):
+        self._conf = conf
 
     @property
     def username(self):
@@ -315,9 +425,7 @@ class ClientWithConfig(ClientWithAuth):
 
     @property
     def token(self):
-        if not self.config.is_user_selected():
-            self.raise_config_not_setup()
-        return self.config.token
+        return self.config.token if self.config.is_user_selected() else self.raise_config_not_setup()
 
     @token.setter
     def token(self, value):
@@ -328,59 +436,40 @@ class ClientWithConfig(ClientWithAuth):
     def ask_password(self):
         return self.config.ask_password()
 
-    @property
-    def config(self) -> Configuration:
-        if not hasattr(self, "_config"):
-            self._conf = Configuration()
-            return self._conf
-        return self._conf
-
-    @config.setter
-    def config(self, conf: Configuration):
-        self._conf = conf
-
     def raise_config_not_setup(self):
         raise AttributeError("Config has not been setup")
 
-    @staticmethod
-    def setup_user(
-        url: Optional[str] = None,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
-        *,
-        make_default: Optional[bool] = None,
-        silent: Optional[bool] = False,
-        force_prompt=True,
-        **user_options,
-    ):
-        url = UrlValidator.validate_url(url) if url is not None else url
-        config = Configuration()
-        config.select_current_user_config(
-            server_address=url, username=username, silent=silent, force_prompt=force_prompt, make_default=make_default
-        )
-        client = ClientWithConfig.from_config(config, auto_authenticate=False)
-        client.authenticate(password=password)
-        client.config.current_user_config.set_options(**user_options)
-        return client
-
-    @staticmethod
-    def from_config(config: Configuration, *, auto_authenticate=True):
-        client = ClientWithConfig(url=config.url, username=config.username, auto_authenticate=auto_authenticate)
-        return client
-
     def select_user(
-        self, url: Optional[str] = None, username: Optional[str] = None, *, auto_authenticate=True, make_default=False
-    ):
+        self, 
+        url: Optional[str] = None, 
+        username: Optional[str] = None, *, 
+        auto_authenticate:bool=True, 
+        password:Optional[str]= None,
+        make_default:Optional[bool]=False,
+        silent:Optional[bool]=False,
+        force_prompt:bool=False,
+        **user_options
+    ) -> "ClientWithConfig":
         if url is None:
             if self.config and self.config.is_user_selected():
                 url = self.config.url
+            # else we leave url as None, for a prompt to enter it to triger in 
+            # select_current_user_config
         else:
             url = UrlValidator.validate_url(url)
-        self.config.select_current_user_config(server_address=url, username=username, make_default=make_default)
+        self.config.select_current_user_config(
+            server_address=url, 
+            username=username, 
+            make_default=make_default, 
+            silent=silent, 
+            force_prompt=force_prompt 
+            )
         self.url = self.config.url
-        if auto_authenticate:
+        self.config.current_user_config.set_options(**user_options)
+        if auto_authenticate or password:
             # authenticate using config. If password is not set, it is prefereable to set it with setup_user
-            self.authenticate()
+            self.authenticate(password=password, force = True if password else False)
+        return self
 
     def clear_rest_cache(self):
         """Clear all REST response cache files for the base url"""
