@@ -34,6 +34,11 @@ documentation = "https://gitlab.pasteur.fr/haisslab/data-management/ONE"
 docs = ["mkdocs-material>=9.6.12"]
 tests = ["pytest-cov>=6.2.1", "responses>=0.25.7"]
 
+[dependency-groups]
+docs = ["mkdocs-material>=9.6.11"]
+celery = ["pytest-cov>=6.2.1", "responses>=0.25.7"]
+dev = ["ipykernel>=6.29.5", "ruff", "ty"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -42,16 +47,25 @@ build-backend = "hatchling.build"
 path = "src/alyx_connector/__init__.py"
 variable = "__version__"
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/alyx_connector"]
+include = [
+  "src/alyx_connector/py.typed",
+  "src/alyx_connector/**/*.pyi",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/alyx_connector/py.typed",
+  "src/alyx_connector/**/*.pyi",
+]
+
 [tool.pytest.ini_options]
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb --cov-report xml --cov=alyx_connector --junitxml=pytest_results.xml --cov-config=pyproject.toml"
 testpaths = ["tests"]
 
 [tool.coverage.run]
 omit = [".venv/*", ".vscode/*", ".tests/*"]
-
-[tool.pdm.version]
-source = "file"
-path = "src/alyx_connector/__init__.py"
 
 [tool.flake8]
 exclude = [
@@ -69,5 +83,15 @@ exclude = [
 ignore = ["W504", "W503", "E266"]
 max-line-length = 99
 
-[dependency-groups]
-dev = ["ipykernel>=6.29.5"]
+[tool.ty.src]
+include = ["src"]
+exclude = [".venv", "venv", "dist", "build", "**/__pycache__"]
+
+[tool.ruff]
+line-length = 99
+
+[tool.ruff.lint]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"**/*.pyi" = []

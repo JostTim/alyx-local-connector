@@ -1,8 +1,14 @@
-import responses, requests, pytest
+import requests
+import pytest
 from typing import cast
 from alyx_connector import Connector
 from pathlib import Path
-from responses.matchers import urlencoded_params_matcher, header_matcher, query_param_matcher
+import responses
+from responses.matchers import (
+    urlencoded_params_matcher, 
+    header_matcher, 
+    query_param_matcher
+)
 
 SERVER_URL = "http://127.0.0.1:80"
 VALID_TOKEN = "1234657988abcbdefg"
@@ -13,7 +19,6 @@ AUTH_MATCHER = header_matcher(
         "Accept": "application/json",
     }
 )
-
 
 @pytest.fixture
 def api_schema():
@@ -31,16 +36,15 @@ def connector():
 
     responses.add(
         method=responses.POST,
-        url=SERVER_URL + "/auth-token",
+        url=SERVER_URL + "/api/auth-token",
         json={"token": VALID_TOKEN},
         status=201,
         match=[urlencoded_params_matcher({"username": username, "password": password})],  # Add matcher for request data
     )
 
     connector = Connector.setup(
-        username=username, url=SERVER_URL, password=password, make_default=True, force_prompt=False
+        username=username, url=SERVER_URL, password=password, auto_authenticate=True, make_default=True, silent=True
     )
-    connector.web_client.authenticate(password=password, force=True)
     return connector
 
 
@@ -57,7 +61,7 @@ def connector_with_schema(connector: Connector, api_schema):
     )
 
     # get schema through the @property schema
-    connector.web_client.schema
+    connector.remote.schema
 
     return connector
 
@@ -70,22 +74,22 @@ def test_responses_configuration():
 
     responses.add(
         method=responses.POST,
-        url=SERVER_URL + "/auth-token",
+        url=SERVER_URL + "/api/auth-token",
         json={"token": VALID_TOKEN},
         status=201,
         match=[urlencoded_params_matcher({"username": username, "password": password})],  # Add matcher for request data
     )
 
-    resp = requests.post(SERVER_URL + "/auth-token", data={"username": username, "password": password})
+    resp = requests.post(SERVER_URL + "/api/auth-token", data={"username": username, "password": password})
     token = cast(dict, resp.json()).get("token")
     assert token == VALID_TOKEN
 
     with pytest.raises(requests.exceptions.ConnectionError):
-        resp = requests.post(SERVER_URL + "/auth-token", data={"username": username, "password": "wrong_pass"})
+        resp = requests.post(SERVER_URL + "/api/auth-token", data={"username": username, "password": "wrong_pass"})
 
 
 def test_connector_configuration(connector: Connector):
-    assert connector.web_client.is_logged_in()
+    assert connector.remote.is_authenticated()
 
 
 @responses.activate
@@ -98,7 +102,7 @@ def test_invalid_connector_username_configuration():
     # correct values in the server
     responses.add(
         method=responses.POST,
-        url=SERVER_URL + "/auth-token",
+        url=SERVER_URL + "/api/auth-token",
         json={"error": "user not present"},
         status=404,
         match=[user_password_matcher],

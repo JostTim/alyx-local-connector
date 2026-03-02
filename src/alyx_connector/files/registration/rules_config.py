@@ -1,15 +1,28 @@
+import shutil
+import re
+import json
+import pkgutil
 from dataclasses import dataclass, field
-from logging import getLogger
-import os, shutil, re, json, pkgutil
 from pandas import Series, DataFrame
 from pathlib import Path
 from re import Pattern
 
 from .. import find_files
-from .utils import get_existing_datasets
+from ...web.specifics import get_dataset_types
 from ...files.parsing.files import File
 
-from typing import Literal, List, Dict, Tuple, Optional, Union, Callable, Protocol, Iterator, cast, TYPE_CHECKING
+from typing import (
+    Literal,
+    List,
+    Dict,
+    Tuple,
+    Optional,
+    Union,
+    Protocol,
+    Iterator,
+    cast,
+    TYPE_CHECKING,
+)
 
 if TYPE_CHECKING:
     from ...connector import Connector
@@ -44,7 +57,8 @@ CheckFullOperation = Literal["exact", "contain", "match", "exact_not", "contain_
 CheckOperation = Literal["exact", "contain", "match"]
 
 RulesConfig = Dict[
-    Literal["re_patterns", "rules", "excluded_folders", "excluded_filenames", "cleanup_folders"], str | dict
+    Literal["re_patterns", "rules", "excluded_folders", "excluded_filenames", "cleanup_folders"],
+    str | dict,
 ]
 
 Rules = Dict[Literal["if", "on", "overrides", Actions], dict | list]
@@ -68,7 +82,6 @@ class FilesRecordList:
                 dico["info"] = file_record.info_message
                 dicts.append(dico)
         else:
-
             for file_record in self.records:
                 dicts.append(file_record.to_user_dict())
 
@@ -130,7 +143,9 @@ class FilesRecordList:
 
 
 class ActionFunction(Protocol):
-    def __call__(self, file_record: "FileRecord", source: str, *, message: str = "") -> "FileRecord": ...
+    def __call__(
+        self, file_record: "FileRecord", source: str, *, message: str = ""
+    ) -> "FileRecord": ...
 
 
 class OperationFunction(Protocol):
@@ -224,7 +239,13 @@ class FileRecord:
 
     @property
     def rename_accepted(self):
-        if self.rename and self.valid_alf and not self.path_conflicts and not self.abort and not self.delete:
+        if (
+            self.rename
+            and self.valid_alf
+            and not self.path_conflicts
+            and not self.abort
+            and not self.delete
+        ):
             return True
         return False
 
@@ -283,8 +304,7 @@ class FileRecord:
                 abort_messages.append(ab_msg)
 
             message = (
-                message_prefix
-                + ", ".join(abort_messages)
+                message_prefix + ", ".join(abort_messages)
                 # + " --- Without Abort, would have been "
                 # + message
             )
@@ -294,7 +314,7 @@ class FileRecord:
         return str(message)
 
 
-class Statement:
+class TestExpression:
     allowed_operations: List[CheckOperation] = ["exact", "contain", "match"]
     allowed_elements = [
         "source_path",
@@ -314,7 +334,10 @@ class Statement:
     operation_method: OperationFunction
 
     def __init__(
-        self, element: Element, operation_detail: str | List[str] | Dict[CheckFullOperation, str | list[str]], parent
+        self,
+        element: Element,
+        operation_detail: str | List[str] | Dict[CheckFullOperation, str | list[str]],
+        parent,
     ):
         self.inverted = False
         self.parent = parent
@@ -389,7 +412,7 @@ class Statement:
         if value is None:
             return False
         value = str(value)
-        # we invert the result of the boolean check if Statement.inverted is True, or not if not inverted
+        # we invert the result of the boolean check if TestExpression.inverted is True, or not if not inverted
         return self.operation_method(value) != self.inverted
 
     def exact(self, value):
@@ -414,11 +437,11 @@ class Statement:
         )
 
 
-class RuleConditions:
+class Condition:
     def __init__(
         self,
         rule_dict: dict,
-        parent: "Rule | RuleConditions",
+        parent: "Rule | Condition",
         rule_name: Optional[str] = None,
         rule_type: Literal["all", "any"] = "all",
         inverted: bool = False,
@@ -426,7 +449,7 @@ class RuleConditions:
         allowed_types: List[Literal["all", "any"]] = ["all", "any"]
         rule_methods = [all, any]
         if rule_type not in allowed_types:
-            raise ValueError(f"rule_type must be one of : {','. join(allowed_types)}")
+            raise ValueError(f"rule_type must be one of : {','.join(allowed_types)}")
 
         self.parent = parent
         self.rule_name = rule_name
@@ -435,7 +458,7 @@ class RuleConditions:
             allowed_types.index(self.rule_type)
         ]  # get the actual python object corresponding to the rule type
         self.inverted = inverted
-        self.sub_rules: List[RuleConditions | Statement] = []
+        self.sub_rules: List[Condition | TestExpression] = []
 
         for key, value in rule_dict.items():
             allowed_types = ["all", "any"]
@@ -443,10 +466,10 @@ class RuleConditions:
                 if ty in key:
                     _rule_type = ty
                     _inverted = True if "_not" in key else False
-                    sub_rule = RuleConditions(value, self, rule_type=_rule_type, inverted=_inverted)
+                    sub_rule = Condition(value, self, rule_type=_rule_type, inverted=_inverted)
                     break
             else:
-                sub_rule = Statement(key, value, self)
+                sub_rule = TestExpression(key, value, self)
 
             self.sub_rules.append(sub_rule)
 
@@ -483,7 +506,13 @@ class RuleConditions:
 
 class RuleActions:
     allowed_actions = ["rename", "include", "delete", "exclude", "abort"]
-    allowed_triggers = ["match", "destination_exists", "rename_unchanged", "rename_error", "rename_successfull"]
+    allowed_triggers = [
+        "match",
+        "destination_exists",
+        "rename_unchanged",
+        "rename_error",
+        "rename_successfull",
+    ]
     triggers: Dict[Triggers, Actions]
 
     def __init__(self, rule_dict: dict, rule_name: str, parent: "Rule"):
@@ -554,7 +583,9 @@ class RuleActions:
         self.get_action_function_for("match", default="abort")(file_record, "match")
 
         if not file_record.destination_file.is_dataset_type_valid:
-            self.get_action_function_for("invalid_alf_format", default="abort")(file_record, "invalid_alf_format")
+            self.get_action_function_for("invalid_alf_format", default="abort")(
+                file_record, "invalid_alf_format"
+            )
 
         return file_record
 
@@ -566,7 +597,10 @@ class RuleActions:
             return self.rule_name == matching_rules[0]
 
         # get a dict of "rule" : "list of overriding rules"
-        overrides_dict = {rule_name: self.parent.parent.rules[rule_name].overrides for rule_name in matching_rules}
+        overrides_dict = {
+            rule_name: self.parent.parent.rules[rule_name].overrides
+            for rule_name in matching_rules
+        }
 
         overriden_rules = set()
         for rule_name, overrides in overrides_dict.items():
@@ -615,7 +649,9 @@ class RuleActions:
         elif search_on == "source_filename":
             searched_string = str(file_record.source_path.name)
         else:
-            searched_string = file_record.source_file[search_on]  # TODO make a list check in __init__ for that
+            searched_string = file_record.source_file[
+                search_on
+            ]  # TODO make a list check in __init__ for that
 
         match = self.patterns[pattern_name].search(searched_string)
 
@@ -624,9 +660,7 @@ class RuleActions:
         # that corresponds by name to what the user entered in "rename_error" : "" in rule in the json file.
         # defaults to the abort method.
         action_if_error = self.get_action_function_for("rename_error", default="abort")
-        message_error_prefix = (
-            f"{element} matching error. Searched on {search_on}, with pattern {pattern_name}, matched {match}."
-        )
+        message_error_prefix = f"{element} matching error. Searched on {search_on}, with pattern {pattern_name}, matched {match}."
 
         if eval_string := rule.get("eval", None):
             try:
@@ -648,7 +682,8 @@ class RuleActions:
                 action_if_error(
                     file_record,
                     "evaluation_string_invalid",
-                    message=message_error_prefix + f" Error : {e}. Evaluation string is probably invalid.",
+                    message=message_error_prefix
+                    + f" Error : {e}. Evaluation string is probably invalid.",
                 )
                 return "", False
         else:  # eval is not specified. We then expect to use the first element of match as rename
@@ -668,9 +703,13 @@ class RuleActions:
     def rename(self, file_record: FileRecord, source: str, *, message: str = "") -> FileRecord:
         file_record.rename = True
         file_record.executed_actions.append(f"{source} -> rename")
-        rename_status = True  # will be set to false in the for loop after if any element renaming fails
+        rename_status = (
+            True  # will be set to false in the for loop after if any element renaming fails
+        )
         for element, rule in self.rename_rule.items():
-            file_record.destination_file[element], element_status = self.rename_element(file_record, element, rule)
+            file_record.destination_file[element], element_status = self.rename_element(
+                file_record, element, rule
+            )
             rename_status = rename_status and element_status
 
         if not rename_status:  # if we got a rename_error above, we skip the next steps
@@ -678,9 +717,13 @@ class RuleActions:
 
         if file_record.destination_file.fullpath == file_record.source_path:
             file_record.rename = False
-            self.get_action_function_for("rename_unchanged", default="include")(file_record, "rename_unchanged")
+            self.get_action_function_for("rename_unchanged", default="include")(
+                file_record, "rename_unchanged"
+            )
         else:
-            self.get_action_function_for("rename_successfull", default="include")(file_record, "rename_successfull")
+            self.get_action_function_for("rename_successfull", default="include")(
+                file_record, "rename_successfull"
+            )
 
         return file_record
 
@@ -704,13 +747,19 @@ class RuleActions:
         file_record.executed_actions.append(f"{source} -> abort")
         return file_record
 
-    def get_action_function_for(self, trigger_name: Triggers, *, default: Actions) -> ActionFunction:
+    def get_action_function_for(
+        self, trigger_name: Triggers, *, default: Actions
+    ) -> ActionFunction:
         return getattr(self, self.triggers.get(trigger_name, default))
 
     def __str__(self):
         spacer = "\n    -  "
-        triggers_str = spacer + spacer.join([str(key) + " : " + str(value) for key, value in self.triggers.items()])
-        rename_rule = spacer.join([str(key) + " : " + str(value) for key, value in self.rename_rule.items()])
+        triggers_str = spacer + spacer.join(
+            [str(key) + " : " + str(value) for key, value in self.triggers.items()]
+        )
+        rename_rule = spacer.join(
+            [str(key) + " : " + str(value) for key, value in self.rename_rule.items()]
+        )
         if rename_rule:
             rename_rule = "\n    Rename Rule :" + spacer + rename_rule
         override_rule = spacer.join(self.parent.overrides)
@@ -725,7 +774,7 @@ class Rule:
             raise ValueError(f"An if field must be defined in the rule {rule_name}")
         self.rule_name = rule_name
         self.parent = parent
-        self.rule_conditions = RuleConditions(rule_dict["if"], self, rule_name=rule_name)
+        self.rule_conditions = Condition(rule_dict["if"], self, rule_name=rule_name)
         self.rule_actions = RuleActions(rule_dict, rule_name, self)
         overrides = rule_dict.get("overrides", [])
         self.overrides = overrides if isinstance(overrides, list) else [overrides]
@@ -742,7 +791,13 @@ class Rule:
         return self.rule_actions.actions_cascade(file_record) if self.active else file_record
 
     def __str__(self):
-        return f"Rule : {self.rule_name}" + "\n" + str(self.rule_actions) + "\n" + str(self.rule_conditions)
+        return (
+            f"Rule : {self.rule_name}"
+            + "\n"
+            + str(self.rule_actions)
+            + "\n"
+            + str(self.rule_conditions)
+        )
 
 
 class Config:
@@ -772,15 +827,17 @@ class Config:
 
         self.connector = connector if connector else Connector()
 
-        patterns: Patterns = rules_config.get("re_patterns", {})  # type: ignore
+        patterns: Patterns = rules_config.get("re_patterns", {})
         compiled_paterns = {}
         for pattern_name, pattern in patterns.items():
             compiled_paterns[pattern_name] = re.compile(pattern)
         self.patterns = compiled_paterns
 
-        rules: Dict[str, Rules] = rules_config["rules"]  # type: ignore
+        rules: Dict[str, Rules] = rules_config["rules"]
 
-        self.rules = {rule_name: Rule(rule_dict, rule_name, self) for rule_name, rule_dict in rules.items()}
+        self.rules = {
+            rule_name: Rule(rule_dict, rule_name, self) for rule_name, rule_dict in rules.items()
+        }
 
         self.excluded_folders = rules_config.get("excluded_folders", [])
 
@@ -788,7 +845,7 @@ class Config:
 
         self.cleanup_folders = rules_config.get("cleanup_folders", [])
 
-        self.dataset_types = get_existing_datasets(self.connector)
+        self.dataset_types = get_dataset_types(self.connector)
         if len(self.dataset_types) == 0:
             raise ValueError(
                 "dataset_types is empty. Cannot register any dataset if no dataset type exists. Maybe one's connector"
@@ -809,11 +866,15 @@ class Config:
         if isinstance(session, Series):
             search_folder = Path(session["path"])
         else:  # session is a string, not a Series
-            session = cast(Series, self.connector.search(id=session, no_cache=True, details=True)["path"])
+            session = cast(
+                Series, self.connector.search(id=session, no_cache=True, details=True)["path"]
+            )
             search_folder = Path(session["path"])
 
         if not Path(search_folder).exists():
-            raise ValueError("The session.path must exist and correspond to an existing repository")
+            raise ValueError(
+                "The session.path must exist and correspond to an existing repository"
+            )
 
         files_list = find_files(search_folder, relative=False, levels=-1, get="files")
 
@@ -825,9 +886,7 @@ class Config:
         file_records = FilesRecordList([FileRecord(Path(file_path)) for file_path in file_list])
 
         for file_record in file_records:
-            skip = (
-                False  # If we find that a find is in the excluded folders, we just discard it (not even try to match)
-            )
+            skip = False  # If we find that a find is in the excluded folders, we just discard it (not even try to match)
             if file_record.destination_file.collection:
                 if any(
                     [
@@ -856,7 +915,9 @@ class Config:
         status = [len(file_record.abort) >= 1 for file_record in file_records]
         return not (any(status))
 
-    def apply_to_files(self, file_records: FilesRecordList, do_deletes=True, do_renames=True, do_cleanup=True):
+    def apply_to_files(
+        self, file_records: FilesRecordList, do_deletes=True, do_renames=True, do_cleanup=True
+    ):
         # DELETING and RENAMING
 
         for file_record in file_records:
@@ -892,7 +953,9 @@ class Config:
                 selected_records.append(file_record)
 
         files_list = [
-            file_record.destination_file.fullpath if file_record.rename else file_record.source_path
+            file_record.destination_file.fullpath
+            if file_record.rename
+            else file_record.source_path
             for file_record in selected_records
         ]
 

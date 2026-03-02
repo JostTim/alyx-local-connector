@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: Alyx neurophysiological database
 paths:
-  /auth-token:
+  /api/auth-token:
     post:
       operationId: auth_token_create
       tags:
@@ -31,7 +31,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthToken'
           description: ''
-  /brain-regions:
+  /api/brain-regions:
     get:
       operationId: brain_regions_list
       description: |-
@@ -105,7 +105,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedBrainRegionList'
           description: ''
-  /brain-regions/{id}:
+  /api/brain-regions/{id}:
     get:
       operationId: brain_regions_retrieve
       parameters:
@@ -188,7 +188,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/BrainRegion'
           description: ''
-  /cache.zip:
+  /api/cache.zip:
     get:
       operationId: cache.zip_retrieve
       tags:
@@ -203,7 +203,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/CacheDownload'
           description: ''
-  /cache/info/:
+  /api/cache/info/:
     get:
       operationId: cache_info_retrieve
       tags:
@@ -218,7 +218,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/CacheVersion'
           description: ''
-  /channels:
+  /api/channels:
     get:
       operationId: channels_list
       description: |-
@@ -356,7 +356,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Channel'
           description: ''
-  /channels/{id}:
+  /api/channels/{id}:
     get:
       operationId: channels_retrieve
       parameters:
@@ -459,7 +459,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /data-formats:
+  /api/data-formats:
     get:
       operationId: data_formats_list
       parameters:
@@ -513,7 +513,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/DataFormat'
           description: ''
-  /data-formats/{name}:
+  /api/data-formats/{name}:
     get:
       operationId: data_formats_retrieve
       parameters:
@@ -613,7 +613,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /data-repository:
+  /api/data-repository:
     get:
       operationId: data_repository_list
       parameters:
@@ -691,7 +691,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/DataRepository'
           description: ''
-  /data-repository-type:
+  /api/data-repository-type:
     get:
       operationId: data_repository_type_list
       parameters:
@@ -745,7 +745,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/DataRepositoryType'
           description: ''
-  /data-repository-type/{name}:
+  /api/data-repository-type/{name}:
     get:
       operationId: data_repository_type_retrieve
       parameters:
@@ -845,7 +845,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /data-repository/{name}:
+  /api/data-repository/{name}:
     get:
       operationId: data_repository_retrieve
       parameters:
@@ -945,7 +945,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /dataset-types:
+  /api/dataset-types:
     get:
       operationId: dataset_types_list
       parameters:
@@ -999,7 +999,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/DatasetType'
           description: ''
-  /dataset-types/{name}:
+  /api/dataset-types/{name}:
     get:
       operationId: dataset_types_retrieve
       parameters:
@@ -1099,7 +1099,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /datasets:
+  /api/datasets:
     get:
       operationId: datasets_list
       description: |-
@@ -1335,7 +1335,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Dataset'
           description: ''
-  /datasets/{id}:
+  /api/datasets/{id}:
     get:
       operationId: datasets_retrieve
       parameters:
@@ -1438,7 +1438,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /downloads:
+  /api/downloads:
     get:
       operationId: downloads_list
       description: |-
@@ -1497,7 +1497,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedDownloadList'
           description: ''
-  /downloads/{id}:
+  /api/downloads/{id}:
     get:
       operationId: downloads_retrieve
       description: 'Example: https://alyx.internationalbrainlab.org/downloads/151f5f77-c9bd-42e6-b31e-5a0e5b080afe'
@@ -1587,7 +1587,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Download'
           description: ''
-  /files:
+  /api/files:
     get:
       operationId: files_list
       description: |-
@@ -1701,7 +1701,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/FileRecord'
           description: ''
-  /files/{id}:
+  /api/files/{id}:
     get:
       operationId: files_retrieve
       parameters:
@@ -1805,7 +1805,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /insertions:
+  /api/insertions:
     get:
       operationId: insertions_list
       description: |-
@@ -1990,7 +1990,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProbeInsertionList'
           description: ''
-  /insertions/{id}:
+  /api/insertions/{id}:
     get:
       operationId: insertions_retrieve
       parameters:
@@ -2094,7 +2094,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /labs:
+  /api/labs:
     get:
       operationId: labs_list
       parameters:
@@ -2222,7 +2222,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Lab'
           description: ''
-  /labs/{name}:
+  /api/labs/{name}:
     get:
       operationId: labs_retrieve
       parameters:
@@ -2322,7 +2322,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /locations:
+  /api/locations:
     get:
       operationId: locations_list
       description: Lists Lab Location
@@ -2351,7 +2351,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedLabLocationList'
           description: ''
-  /locations/{name}:
+  /api/locations/{name}:
     get:
       operationId: locations_retrieve
       description: Allows viewing of full detail and deleting a water administration.
@@ -2437,7 +2437,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/LabLocation'
           description: ''
-  /media/{img_url}:
+  /api/media/{img_url}:
     get:
       operationId: media_retrieve
       parameters:
@@ -2455,7 +2455,7 @@ paths:
       responses:
         '200':
           description: No response body
-  /new-download:
+  /api/new-download:
     post:
       operationId: new_download_create
       description: |-
@@ -2477,7 +2477,7 @@ paths:
       responses:
         '201':
           description: No response body
-  /notes:
+  /api/notes:
     get:
       operationId: notes_list
       description: |-
@@ -2555,7 +2555,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Note'
           description: ''
-  /notes/{id}:
+  /api/notes/{id}:
     get:
       operationId: notes_retrieve
       parameters:
@@ -2659,7 +2659,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /procedures:
+  /api/procedures:
     get:
       operationId: procedures_list
       parameters:
@@ -2712,7 +2712,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProcedureType'
           description: ''
-  /projects:
+  /api/projects:
     get:
       operationId: projects_list
       parameters:
@@ -2766,7 +2766,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Project'
           description: ''
-  /projects/{name}:
+  /api/projects/{name}:
     get:
       operationId: projects_retrieve
       parameters:
@@ -2866,7 +2866,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /register-file:
+  /api/register-file:
     post:
       operationId: register_file_create
       description: |-
@@ -2922,7 +2922,7 @@ paths:
       responses:
         '201':
           description: No response body
-  /revisions:
+  /api/revisions:
     get:
       operationId: revisions_list
       parameters:
@@ -2975,7 +2975,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Revision'
           description: ''
-  /revisions/{name}:
+  /api/revisions/{name}:
     get:
       operationId: revisions_retrieve
       parameters:
@@ -3074,7 +3074,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /server-info:
+  /api/server-info:
     get:
       operationId: server_info_retrieve
       tags:
@@ -3089,7 +3089,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ServerInfo'
           description: ''
-  /sessions:
+  /api/sessions:
     get:
       operationId: sessions_list
       description: |2-
@@ -3374,9 +3374,113 @@ paths:
               schema:
                 $ref: '#/components/schemas/SessionDetail'
           description: ''
-  /sessions/{id}:
+  /api/sessions/{name}:
     get:
-      operationId: sessions_retrieve
+      operationId: session_retrieve_by_name
+      description: Detail of one session
+      parameters:
+      - in: path
+        name: name
+        schema:
+          type: string
+        required: true
+      tags:
+      - sessions
+      security:
+      - cookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionDetail'
+          description: ''
+    put:
+      operationId: session_update_by_name
+      description: Detail of one session
+      parameters:
+      - in: path
+        name: name
+        schema:
+          type: string
+        required: true
+      tags:
+      - sessions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionDetail'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SessionDetail'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SessionDetail'
+        required: true
+      security:
+      - cookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionDetail'
+          description: ''
+    patch:
+      operationId: session_partial_update_by_name
+      description: Detail of one session
+      parameters:
+      - in: path
+        name: name
+        schema:
+          type: string
+        required: true
+      tags:
+      - sessions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSessionDetail'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSessionDetail'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSessionDetail'
+      security:
+      - cookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionDetail'
+          description: ''
+    delete:
+      operationId: session_delete_by_name
+      description: Detail of one session
+      parameters:
+      - in: path
+        name: name
+        schema:
+          type: string
+        required: true
+      tags:
+      - sessions
+      security:
+      - cookieAuth: []
+      - tokenAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/sessions/{id}:
+    get:
+      operationId: session_retrieve
       description: Detail of one session
       parameters:
       - in: path
@@ -3398,7 +3502,7 @@ paths:
                 $ref: '#/components/schemas/SessionDetail'
           description: ''
     put:
-      operationId: sessions_update
+      operationId: session_update
       description: Detail of one session
       parameters:
       - in: path
@@ -3432,7 +3536,7 @@ paths:
                 $ref: '#/components/schemas/SessionDetail'
           description: ''
     patch:
-      operationId: sessions_partial_update
+      operationId: session_partial_update
       description: Detail of one session
       parameters:
       - in: path
@@ -3465,7 +3569,7 @@ paths:
                 $ref: '#/components/schemas/SessionDetail'
           description: ''
     delete:
-      operationId: sessions_destroy
+      operationId: session_delete
       description: Detail of one session
       parameters:
       - in: path
@@ -3482,7 +3586,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /subjects:
+  /api/subjects:
     get:
       operationId: subjects_list
       parameters:
@@ -3735,12 +3839,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/SubjectList'
           description: ''
-  /subjects/{nickname}:
+  /api/subjects/{name}:
     get:
       operationId: subjects_retrieve
       parameters:
       - in: path
-        name: nickname
+        name: name
         schema:
           type: string
         required: true
@@ -3760,7 +3864,7 @@ paths:
       operationId: subjects_update
       parameters:
       - in: path
-        name: nickname
+        name: name
         schema:
           type: string
         required: true
@@ -3792,7 +3896,7 @@ paths:
       operationId: subjects_partial_update
       parameters:
       - in: path
-        name: nickname
+        name: name
         schema:
           type: string
         required: true
@@ -3823,7 +3927,7 @@ paths:
       operationId: subjects_destroy
       parameters:
       - in: path
-        name: nickname
+        name: name
         schema:
           type: string
         required: true
@@ -3835,7 +3939,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /surgeries:
+  /api/surgeries:
     get:
       operationId: surgeries_list
       description: Lists Surgeries
@@ -3864,7 +3968,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedSurgeryList'
           description: ''
-  /sync-file-status:
+  /api/sync-file-status:
     get:
       operationId: sync_file_status_retrieve
       tags:
@@ -3887,7 +3991,7 @@ paths:
       responses:
         '200':
           description: No response body
-  /tags:
+  /api/tags:
     get:
       operationId: tags_list
       parameters:
@@ -3940,7 +4044,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Tag'
           description: ''
-  /tags/{id}:
+  /api/tags/{id}:
     get:
       operationId: tags_retrieve
       parameters:
@@ -4043,7 +4147,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /tasks:
+  /api/tasks:
     get:
       operationId: tasks_list
       description: |-
@@ -4210,7 +4314,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/TaskDetailsSeriaizer'
           description: ''
-  /tasks/{id}:
+  /api/tasks/{id}:
     get:
       operationId: tasks_retrieve
       parameters:
@@ -4313,7 +4417,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /trajectories:
+  /api/trajectories:
     get:
       operationId: trajectories_list
       description: |-
@@ -4483,7 +4587,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/TrajectoryEstimate'
           description: ''
-  /trajectories/{id}:
+  /api/trajectories/{id}:
     get:
       operationId: trajectories_retrieve
       parameters:
@@ -4587,7 +4691,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /users:
+  /api/users:
     get:
       operationId: users_list
       description: Lists all users with the subjects which they are responsible for.
@@ -4616,7 +4720,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedUserList'
           description: ''
-  /users/{username}:
+  /api/users/{username}:
     get:
       operationId: users_retrieve
       description: Lists all users with the subjects which they are responsible for.
@@ -4638,7 +4742,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/User'
           description: ''
-  /water-administrations:
+  /api/water-administrations:
     get:
       operationId: water_administrations_list
       description: Lists or creates a new water administration.
@@ -4745,7 +4849,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/WaterAdministrationDetail'
           description: ''
-  /water-administrations/{id}:
+  /api/water-administrations/{id}:
     get:
       operationId: water_administrations_retrieve
       description: Allows viewing of full detail and deleting a water administration.
@@ -4853,12 +4957,12 @@ paths:
       responses:
         '204':
           description: No response body
-  /water-requirement/{nickname}:
+  /api/water-requirement/{name}:
     get:
       operationId: water_requirement_retrieve
       parameters:
       - in: path
-        name: nickname
+        name: name
         schema:
           type: string
         required: true
@@ -4870,7 +4974,7 @@ paths:
       responses:
         '200':
           description: No response body
-  /water-restricted-subjects:
+  /api/water-restricted-subjects:
     get:
       operationId: water_restricted_subjects_list
       parameters:
@@ -4898,7 +5002,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedWaterRestrictedSubjectListList'
           description: ''
-  /water-restriction:
+  /api/water-restriction:
     get:
       operationId: water_restriction_list
       description: Lists water restriction.
@@ -4996,7 +5100,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedWaterRestrictionListList'
           description: ''
-  /water-type:
+  /api/water-type:
     get:
       operationId: water_type_list
       parameters:
@@ -5050,7 +5154,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/WaterTypeDetail'
           description: ''
-  /water-type/{name}:
+  /api/water-type/{name}:
     get:
       operationId: water_type_list_2
       parameters:
@@ -5115,7 +5219,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/WaterTypeDetail'
           description: ''
-  /weighings:
+  /api/weighings:
     get:
       operationId: weighings_list
       description: Lists or creates a new weighing.
@@ -5208,7 +5312,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/WeighingDetail'
           description: ''
-  /weighings/{id}:
+  /api/weighings/{id}:
     get:
       operationId: weighings_retrieve
       description: Allows viewing of full detail and deleting a weighing.
@@ -7201,6 +7305,10 @@ components:
         path:
           type: string
           readOnly: true
+        name:
+          type: string
+          description: Long name (must be unique)
+          maxLength: 255
         json:
           nullable: true
           description: Structured data, formatted in a user-defined way
@@ -7243,6 +7351,10 @@ components:
             please use the Zygosities fields below, and the description field to put more details that you want to remember.
           pattern: ^[-._~\+\*\w]+$
           maxLength: 64
+        name:
+          type: string
+          description: Long name
+          maxLength: 255
         url:
           type: string
           format: uri
@@ -7268,7 +7380,7 @@ components:
           nullable: true
         species:
           type: string
-          description: common name, e.g. "mouse"
+          description: Long name
           nullable: true
         sex:
           oneOf:
@@ -7517,12 +7629,7 @@ components:
       properties:
         subject:
           type: string
-          description: |-
-            Please follow the standard format :
-            Two or three initials of the person in charge + number of the animal for that person, in chronological order.
-            e.g. wm25 => Wilson Mena mouse n°25.
-            For following the identity of the mouses in term of genotype/injected viruses and the correspunding number in mayakind,
-            please use the Zygosities fields below, and the description field to put more details that you want to remember.
+          description: Long name
         date_time:
           type: string
           format: date-time
@@ -7837,6 +7944,10 @@ components:
         path:
           type: string
           readOnly: true
+        name:
+          type: string
+          description: Long name (must be unique)
+          maxLength: 255
         json:
           nullable: true
           description: Structured data, formatted in a user-defined way
@@ -7885,12 +7996,7 @@ components:
       properties:
         subject:
           type: string
-          description: |-
-            Please follow the standard format :
-            Two or three initials of the person in charge + number of the animal for that person, in chronological order.
-            e.g. wm25 => Wilson Mena mouse n°25.
-            For following the identity of the mouses in term of genotype/injected viruses and the correspunding number in mayakind,
-            please use the Zygosities fields below, and the description field to put more details that you want to remember.
+          description: Long name
           readOnly: true
         start_time:
           type: string
@@ -7962,6 +8068,10 @@ components:
             please use the Zygosities fields below, and the description field to put more details that you want to remember.
           pattern: ^[-._~\+\*\w]+$
           maxLength: 64
+        name:
+          type: string
+          description: Long name
+          maxLength: 255
         url:
           type: string
           format: uri
@@ -7987,7 +8097,7 @@ components:
           nullable: true
         species:
           type: string
-          description: common name, e.g. "mouse"
+          description: Long name
           nullable: true
         sex:
           oneOf:
@@ -8080,6 +8190,10 @@ components:
             please use the Zygosities fields below, and the description field to put more details that you want to remember.
           pattern: ^[-._~\+\*\w]+$
           maxLength: 64
+        name:
+          type: string
+          description: Long name
+          maxLength: 255
         url:
           type: string
           format: uri
@@ -8105,7 +8219,7 @@ components:
           nullable: true
         species:
           type: string
-          description: common name, e.g. "mouse"
+          description: Long name
           nullable: true
         sex:
           oneOf:
@@ -8178,12 +8292,7 @@ components:
           readOnly: true
         subject:
           type: string
-          description: |-
-            Please follow the standard format :
-            Two or three initials of the person in charge + number of the animal for that person, in chronological order.
-            e.g. wm25 => Wilson Mena mouse n°25.
-            For following the identity of the mouses in term of genotype/injected viruses and the correspunding number in mayakind,
-            please use the Zygosities fields below, and the description field to put more details that you want to remember.
+          description: Long name
         name:
           type: string
           description: Long name
@@ -8463,12 +8572,7 @@ components:
           type: array
           items:
             type: string
-            description: |-
-              Please follow the standard format :
-              Two or three initials of the person in charge + number of the animal for that person, in chronological order.
-              e.g. wm25 => Wilson Mena mouse n°25.
-              For following the identity of the mouses in term of genotype/injected viruses and the correspunding number in mayakind,
-              please use the Zygosities fields below, and the description field to put more details that you want to remember.
+            description: Long name
         lab:
           type: string
           readOnly: true
@@ -8482,12 +8586,7 @@ components:
       properties:
         subject:
           type: string
-          description: |-
-            Please follow the standard format :
-            Two or three initials of the person in charge + number of the animal for that person, in chronological order.
-            e.g. wm25 => Wilson Mena mouse n°25.
-            For following the identity of the mouses in term of genotype/injected viruses and the correspunding number in mayakind,
-            please use the Zygosities fields below, and the description field to put more details that you want to remember.
+          description: Long name
         date_time:
           type: string
           format: date-time
@@ -8519,16 +8618,10 @@ components:
     WaterRestrictedSubjectList:
       type: object
       properties:
-        nickname:
+        name:
           type: string
-          description: |-
-            Please follow the standard format :
-            Two or three initials of the person in charge + number of the animal for that person, in chronological order.
-            e.g. wm25 => Wilson Mena mouse n°25.
-            For following the identity of the mouses in term of genotype/injected viruses and the correspunding number in mayakind,
-            please use the Zygosities fields below, and the description field to put more details that you want to remember.
-          pattern: ^[-._~\+\*\w]+$
-          maxLength: 64
+          description: Long name
+          maxLength: 255
         url:
           type: string
           format: uri
@@ -8556,12 +8649,7 @@ components:
       properties:
         subject:
           type: string
-          description: |-
-            Please follow the standard format :
-            Two or three initials of the person in charge + number of the animal for that person, in chronological order.
-            e.g. wm25 => Wilson Mena mouse n°25.
-            For following the identity of the mouses in term of genotype/injected viruses and the correspunding number in mayakind,
-            please use the Zygosities fields below, and the description field to put more details that you want to remember.
+          description: Long name
           readOnly: true
         start_time:
           type: string
@@ -8603,12 +8691,7 @@ components:
       properties:
         subject:
           type: string
-          description: |-
-            Please follow the standard format :
-            Two or three initials of the person in charge + number of the animal for that person, in chronological order.
-            e.g. wm25 => Wilson Mena mouse n°25.
-            For following the identity of the mouses in term of genotype/injected viruses and the correspunding number in mayakind,
-            please use the Zygosities fields below, and the description field to put more details that you want to remember.
+          description: Long name
         date_time:
           type: string
           format: date-time
@@ -8647,7 +8730,7 @@ components:
       properties:
         allele:
           type: string
-          description: informal name in lab, e.g. Pvalb-Cre
+          description: Long name
         zygosity:
           $ref: '#/components/schemas/ZygosityEnum'
       required:

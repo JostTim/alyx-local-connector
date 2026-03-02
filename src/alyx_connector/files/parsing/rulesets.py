@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, List, Dict, Tuple, Optional, Union, Callable, Protocol, Iterator, cast
-
+from typing import Literal, List, Dict, Tuple, Optional, Protocol
+from .files import File
 
 class ActionFunction(Protocol):
     def __call__(self, file_record: "FileRecord", source: str, *, message: str = "") -> "FileRecord": ...

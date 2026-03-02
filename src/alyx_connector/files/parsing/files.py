@@ -6,6 +6,7 @@ from pandas import Series
 from copy import copy
 
 from .expressions import Part, Matcher
+from ...styling.table import TableStyler
 
 from typing import Optional, Any, TypedDict, List, Tuple, Unpack, Union, cast
 
@@ -33,7 +34,6 @@ class PartsDict(TypedDict, total=False):
 
 
 class UUID(OriginalUUID):
-
     @classmethod
     def from_any(cls, value: str | int | bytes | OriginalUUID) -> "UUID":
 
@@ -54,22 +54,23 @@ class UUID(OriginalUUID):
         try:
             uuid = cls.from_any(value)
             return uuid.version in versions
-        except Exception :
+        except Exception:
             return False
 
 
 class File:
-
     partsnames = Part._member_names_
 
     _unallowed_chars = ["?", "*", ":", '"', "<", ">"]
-    _unallowed_chars_pattern = compile(rf'[{"".join([char for char in _unallowed_chars])}]')
+    _unallowed_chars_pattern = compile(rf"[{''.join([char for char in _unallowed_chars])}]")
 
     def _check_unallowed_chars(self, variable: Any):
         if not variable:
             return
         if bool(self._unallowed_chars_pattern.search(str(variable))):
-            raise ValueError(f"A path cannot contain any of these characters {self._unallowed_chars}")
+            raise ValueError(
+                f"A path cannot contain any of these characters {self._unallowed_chars}"
+            )
 
     def copy(self) -> "File":
         return copy(self)
@@ -107,10 +108,12 @@ class File:
 
     def _raise_if_not_partname(self, partname: str):
         if partname not in self.partsnames:
-            raise ValueError(f"Argument {partname} not allowed in File. Allowed part names are {self.partsnames}")
+            raise ValueError(
+                f"Argument {partname} not allowed in File. Allowed part names are {self.partsnames}"
+            )
 
     @property
-    def root(self) -> Optional[Path]:
+    def root(self) -> Path | None:
         return getattr(self, "_root", None)
 
     @root.setter
@@ -131,7 +134,7 @@ class File:
         self._root = rootpath
 
     @property
-    def drive(self) -> Optional[Path]:
+    def drive(self) -> Path | None:
         return getattr(self, "_drive", None)
 
     @drive.setter
@@ -139,7 +142,7 @@ class File:
         raise ValueError("Drive is a read only filepart")
 
     @property
-    def subject(self) -> Optional[str]:
+    def subject(self) -> str | None:
         return getattr(self, "_subject", None)
 
     @subject.setter
@@ -148,7 +151,7 @@ class File:
         self._subject = subject if subject is not None else None
 
     @property
-    def date(self) -> Optional[str]:
+    def date(self) -> str | None:
         return getattr(self, "_date", None)
 
     @date.setter
@@ -159,7 +162,7 @@ class File:
         self._date = date if date else None
 
     @property
-    def number(self) -> Optional[str]:
+    def number(self) -> str | None:
         return getattr(self, "_number", None)
 
     @number.setter
@@ -168,7 +171,7 @@ class File:
         self._number = str(int(number)).zfill(3) if number else None
 
     @property
-    def collection(self) -> Optional[Path]:
+    def collection(self) -> Path | None:
         return getattr(self, "_collection", None)
 
     @collection.setter
@@ -181,7 +184,7 @@ class File:
         self._collection = Path(collection) if collection else None
 
     @property
-    def revision(self) -> Optional[Path]:
+    def revision(self) -> Path | None:
         return getattr(self, "_revision", None)
 
     @revision.setter
@@ -192,11 +195,13 @@ class File:
         if str(revision).endswith(("/", "\\")):
             revision = str(revision)[:-1]
         if any([slash in str(revision) for slash in ["/", "\\"]]):
-            raise ValueError("A revision must be a single folder. Multiple revision folders are not allowed")
+            raise ValueError(
+                "A revision must be a single folder. Multiple revision folders are not allowed"
+            )
         self._revision = Path(revision) if revision else None
 
     @property
-    def object(self) -> Optional[str]:
+    def object(self) -> str | None:
         return getattr(self, "_object", None)
 
     @object.setter
@@ -207,7 +212,7 @@ class File:
         self._object = object if object else None
 
     @property
-    def attribute(self) -> Optional[str]:
+    def attribute(self) -> str | None:
         return getattr(self, "_attribute", None)
 
     @attribute.setter
@@ -230,7 +235,7 @@ class File:
         return False if not self.attribute else True
 
     @property
-    def extra(self) -> Optional[str]:
+    def extra(self) -> str | None:
         return getattr(self, "_extra", None)
 
     @extra.setter
@@ -250,7 +255,7 @@ class File:
         self.extra = ".".join(extras)
 
     @property
-    def extension(self) -> Optional[str]:
+    def extension(self) -> str | None:
         return getattr(self, "_extension", None)
 
     @extension.setter
@@ -299,7 +304,9 @@ class File:
     @property
     def filename(self) -> str:
         if self.object is None:
-            raise ObjectError("Cannot resolve a filename if at least the 'object' attribute is not set.")
+            raise ObjectError(
+                "Cannot resolve a filename if at least the 'object' attribute is not set."
+            )
         if (
             (self.extras and not self.attribute)
             or (self.extras and not self.extension)
@@ -308,7 +315,9 @@ class File:
             raise ExtraError(
                 "Cannot create a valid reparseable filename if extras are set but an attribute or sextension is not"
             )
-        parts = [part for part in [self.object, self.attribute] + self.extras + [self.extension] if part]
+        parts = [
+            part for part in [self.object, self.attribute] + self.extras + [self.extension] if part
+        ]
         return ".".join(parts)
 
     @filename.setter
@@ -338,13 +347,16 @@ class File:
         return self.session_name_as_path / self.collection_subpath
 
     @property
-    def session_path(self) -> Path:
+    def session_path(self) -> Path | None:
         if self.root is None:
-            raise ValueError("Cannot compute session path for a file with no root set.")
+            return None
+            # raise ValueError("Cannot compute session path for a file with no root set.")
         return Path(self.root) / self.session_name_as_path
 
     @property
-    def fullpath(self) -> Path:
+    def fullpath(self) -> Path | None:
+        if self.session_path is None:
+            return None
         return self.session_path / self.internal_path
 
     def has_session(self) -> bool:
@@ -353,143 +365,32 @@ class File:
         except ValueError:
             return False
 
-    def _repr_html_(self):
-        try:
-            filename = self.fullpath
-        except Exception:
-            filename = "Invalid fullpath"
-        header_text = f"{self.__class__.__name__} : {filename}"
-        return (
-            f"""
-        <div class="table-container">
-            <table>
-                <thead>
-                    <th class="title" colspan="10">{header_text}<button id="toggle-headers-btn">&#x25BC;</button></th>
-                </thead>
-                <thead class="head">
-                    <tr>
-                        <th rowspan="3">root</th>
-                        <th>subject</th>
-                        <th>date</th>
-                        <th>number</th>
-                        <th>collection</th>
-                        <th>revision</th>
-                        <th>object</th>
-                        <th>attribute</th>
-                        <th>extra</th>
-                        <th>extension</th>
-                    </tr>
-                    <tr class="foldable-header">
-                        <th colspan="9">relative_path</th>
-                    </tr>
-                    <tr class="foldable-header">
-                        <th colspan="3">session_name</th>
-                        <th colspan="2">collection_subpath</th>
-                        <th colspan="4">filename</th>
-                    </tr>
-                    <tr class="foldable-header">
-                        <th colspan="4">session_path</th>
-                        <th colspan="6">internal_path</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>{self.root or ""}</td>
-                        <td>{self.subject or ""}</td>
-                        <td>{self.date or ""}</td>
-                        <td>{self.number or ""}</td>
-                        <td>{self.collection or ""}</td>
-                        <td>{self.revision or ""}</td>
-                        <td>{self.object or ""}</td>
-                        <td>{self.attribute or ""}</td>
-                        <td>{self.extra or ""}</td>
-                        <td>{self.extension or ""}</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>"""
-            + """
-        <style>
-            .table-container{
-                border: 1px solid rgb(173, 173, 173);
-                border-radius: 5px;
-                overflow: hidden;
-                display: inline-block;
-            }
-            .title{
-                text-align: left;
-                white-space: pre;
-                font-weight: bolder;
-                position:relative;
-            }
-            table {
-                font-family: consolas;
-                border-collapse: collapse;
-            }
-            th, td {
-                border: 1px solid rgb(160 160 160);
-            }
-            thead:first-of-type th {
-                border-top: none;
-            }
-            td {
-                border-bottom: 0px;
-            }
-            th:first-of-type, td:first-of-type {
-                border-left: none;
-            }
-            td:last-of-type, th:last-of-type {
-                border-right: none;
-            }
-            thead > tr > th:hover, tbody > tr > td:hover{
-                background-color: rgba(111, 110, 160, 0.267);
-            }
-            #toggle-headers-btn {
-                position:absolute;
-                right:8px;
-                top:4px;
-                font-size:0.9em;
-            }
-            .foldable-header {
-                display: none;
-                transition: display 0.2s;
-            }
-            .foldable-header.visible {
-                display: table-row;
-            }
-            #toggle-headers-btn {
-                background: none;
-                border: none;
-                cursor: pointer;
-                padding: 0 4px;
-                color: #444;
-                transition: color 0.2s;
-            }
-            #toggle-headers-btn:hover {
-                color: #222;
-            }
-        </style>
-        <script>
-            (function(){
-                var btn = document.getElementById('toggle-headers-btn');
-                var rows = document.querySelectorAll('.foldable-header');
-                var expanded = false;
-                function setRows(show) {
-                    rows.forEach(function(row){
-                        if(show) row.classList.add('visible');
-                        else row.classList.remove('visible');
-                    });
-                    btn.innerHTML = show ? '&#x25B2;' : '&#x25BC;';
-                }
-                btn.addEventListener('click', function(){
-                    expanded = !expanded;
-                    setRows(expanded);
-                });
-                setRows(false);
-            })();
-        </script>
-        """
-        )
+    def _styler(self) -> TableStyler:
+
+        rows = [{k: v if v else "" for k, v in self.to_dict().items() if k != "drive"}]
+        headers = [
+            {  # rowspans (because it's the first header row so all colspans are 1)
+                "root": 3,
+                "subject": 1,
+                "date": 1,
+                "number": 1,
+                "collection": 1,
+                "revision": 1,
+                "object": 1,
+                "attribute": 1,
+                "extra": 1,
+                "extension": 1,
+            },
+            {"relative_path": 9},  # colspans
+            {"session_name": 3, "collection_subpath": 2, "filename": 4},  # colspans
+            {"session_path": 4, "internal_path": 6},  # colspans
+        ]
+        filename = self.fullpath if self.fullpath else "Invalid fullpath"
+        title = f"{self.__class__.__name__} : {filename}"
+        return TableStyler(rows, headers=headers, title=title)
+
+    def _repr_html_(self) -> str:
+        return self._styler().to_html()
 
     def __str__(self):
         return self.fullpath.__str__()

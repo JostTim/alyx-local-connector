@@ -1,207 +1,49 @@
-from sys import platform
-from os import environ
 from pathlib import Path
 import json
 from json import JSONDecodeError
 from enum import Enum
 from rich.prompt import Prompt, Confirm
-from rich.text import Text
 
-from .types import Singleton
 from ..web.urls import UrlValidator
+from .directories import RequestsCache
 
 from typing import Optional, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..connector.core import Connector
+    from .core import Configuration
 
+## TODO
+## silent should be separated from noinput
+## silent is a config for verbosity of remote / local operations,
+## that can be kept in config value per user
+## noinput instead is for keeping track of wether None values can be asked
+## via terminal user input, or if the code should raise instead if a value is None
+## (for users to be able to debug their code, if they intend for CLI / automated runs,
+## and forgot to programatically set some values)
 
-class Directory:
-    """This is a very simple class meant to centralize the definition of the "root path" related to 
-    alyx's connector configuration (for cache, server & user config and basically anything that may 
-    need to persist on disk), on each different operating system supported.
-    """
-    directory_name: str | Path # directory
-
-    @property
-    def root_path(self) -> Path:
-        # windows
-        if platform == "win32" or platform == "cygwin":
-            return Path(environ["LOCALAPPDATA"]) / self.directory_name
-        # linux / mac / else
-        else:
-            return Path.home() / self.directory_name
-
-
-class Configuration(Directory, metaclass=Singleton):
-    """A Configuration is the main class of this module.
-    It is a class that manages a ConfigIndex (a nested dictionnary with a 
-    json representation on disc, see below) and provides usefull fonctions to easily set/get
-    server / user related informations from the index, and keep track of the currentely selected user, 
-    for adressing api requests using the right server, user and token.
-    """
-
-    directory_name = ".alyx_connector"
-    index_filename = "index.json"
-
-    def __init__(self, parent_connector: "Connector"):
-        self.parent_connector = parent_connector
-
-    @property
-    def index_path(self) -> Path:
-        return self.root_path / self.index_filename
-
-    @property
-    def index(self) -> "ConfigIndex":
-        if not hasattr(self, "_index"):
-            self._index = ConfigIndex(self.index_path, self)
-        return self._index 
-
-    def select_current_user_config(
-        self,
-        server_address: Optional[str] = None,
-        username: Optional[str] = None,
-        make_default: Optional[bool] = None,
-        silent: Optional[bool] = None,
-        force_prompt:bool=False,
-    ) -> "Configuration":
-        self.silent = silent
-        # we temporarily set force prompt if True
-        self.force_prompt = force_prompt
-        self._current_user_config = self.index.server(server_address).user(username, make_default=make_default)
-        self.force_prompt = False
-        self._current_user_config.set_as_default(make_default)
-    
-        return self
-
-    def is_user_selected(self) -> bool:
-        if not hasattr(self, "_current_user_config"):
-            return False
-        return True
-
-    @property
-    def current_user_config(self) -> "UserConfig":
-        if not self.is_user_selected():
-            raise ValueError("current_user_config has not yet been set. Please use select_current_user_config to do so")
-        return self._current_user_config
-
-    @property
-    def username(self) -> str:
-        return self.current_user_config.username
-
-    @property
-    def url(self) -> str:
-        return self.current_user_config.server.url
-
-    @property
-    def rest_cache_location(self) -> Path:
-        return self.current_user_config.rest_cache_location
-
-    @rest_cache_location.setter
-    def rest_cache_location(self, value):
-        self.current_user_config.rest_cache_location = value
-
-    @property
-    def local_data_location(self):
-        return self.current_user_config.local_data_location
-
-    @local_data_location.setter
-    def local_data_location(self, value):
-        self.current_user_config.local_data_location = value
-
-    @property
-    def token(self) -> str | None:
-        return self.current_user_config.token
-
-    @token.setter
-    def token(self, value: str | None):
-        self.current_user_config.token = value
-
-    def token_exists(self):
-        return self.current_user_config.token_exists()
-
-    def ask_password(self):
-        return Prompt.ask(
-            Text("Enter Alyx password for ", style="blue")
-            .append(f"{self.username}")
-            .append(" at ")
-            .append(f"{self.url}", style="turquoise2"),
-            password=True,
-        )
-
-    @property
-    def silent(self):
-        if not self.is_user_selected():
-            if not hasattr(self, "_silent"):
-                self._silent = False
-            return self._silent
-        if hasattr(self, "_silent"):
-            if self._silent is None:
-                self._silent = self.current_user_config.silent
-            elif self._silent != self.current_user_config.silent:
-                self.current_user_config.silent = self._silent
-        else:
-            self._silent = self.current_user_config.silent
-        return self._silent
-
-    @silent.setter
-    def silent(self, value: bool | None):
-        if not self.is_user_selected():
-            self._silent = value
-        else:
-            if value is None:
-                return
-                raise ValueError("Cannot set silent value to None if a userconfig is selected. Must be True or False")
-            self._silent = value
-            self.current_user_config.silent = value
-
-    def delete_all(self):
-        """Deletes the whole configuration file (index.json) and the reference to the current Index. 
-        (to have it resinstanciated upon next call to .index)
-        """
-
-        request_cache_default_root = RequestsCache().root_path
-        for server in self.index.servers.values() :
-            for user in server.users.values():
-                for file in user.rest_cache_location.glob("*"):
-                    file.unlink(missing_ok=True)
-                if user.rest_cache_location.is_dir():
-                    user.rest_cache_location.rmdir()
-            if request_cache_default_root.joinpath(server.stringified_url).is_dir():
-                request_cache_default_root.joinpath(server.stringified_url).rmdir()
-        if request_cache_default_root.is_dir():
-            request_cache_default_root.rmdir()  
-
-        self.index_path.unlink(missing_ok=True)
-        if hasattr(self, "_index"):
-            delattr(self, "_index")
-        if hasattr(self, "_current_user_config"):
-            delattr(self, "_current_user_config")
-        if hasattr(self, "_silent"):
-            delattr(self, "_silent")
 
 class ConfigDict(dict):
     """A config dict-class is supposed to be inherited, and be part of a set of nested dictionnaries, implemented as
-    ConfigDicts, for wich a ConfigIndex is the root of them. They work together and recursively pass upwards to the index, 
-    events such as necessity to save or load the "root" wich holds a representation to a json file on disc, of the 
+    ConfigDicts, for wich a ConfigIndex is the root of them. They work together and recursively pass upwards to the index,
+    events such as necessity to save or load the "root" wich holds a representation to a json file on disc, of the
     whole nested dictionnaries stack.
-    It automatically instanciates "sub" dictionnaries of itself, using SpecialKeysEnum, wich maps dictionnary keys, to
-    child classes of ConfigDict. Every key who's name is not a name in the SpecialKeysEnum will be by default a simple
-    ConfigDict, as specified in SpecialKeysEnum.-DEFAULT value.
+    It automatically instanciates "sub" dictionnaries of itself, using SpecialDictKeysEnum, wich maps dictionnary keys, to
+    child classes of ConfigDict. Every key who's name is not a name in the SpecialDictKeysEnum will be by default a simple
+    ConfigDict, as specified in SpecialDictKeysEnum.-DEFAULT value.
 
-    How it works to create the whole stack of parent to child instances : 
-    - on __init__ -> _content_instanciation, 
+    How it works to create the whole stack of parent to child instances :
+    - on __init__ -> _content_instanciation,
     - for each key : -> value obtined from _value_instanciation (using a ConfigDict if value is a dict),
     - As a result, if the child itself is a ConfigDict, it performs instanciation, starting with __init__
     - finally, sets that value to the key with standard dict.__setitem__
 
     To be sure to not erase previously stored value, the ConfigIndex only (the root of the dict tree) performs
-    a global .load() from the .json file, unpon __init__. (Wich triggers the first _content_instanciation 
+    a global .load() from the .json file, unpon __init__. (Wich triggers the first _content_instanciation
     run (then recursively on the whole stack).
 
-    To be sure to not perform many .save() write operations on ConfigIndex recursive _content_instanciation, 
-    after a .load(), the .save() method is only attached to the child derived __setitem__ method, and 
-    when instanciating,  the _content_instanciation uses the original dictionnary class .__setitem__ 
+    To be sure to not perform many .save() write operations on ConfigIndex recursive _content_instanciation,
+    after a .load(), the .save() method is only attached to the child derived __setitem__ method, and
+    when instanciating,  the _content_instanciation uses the original dictionnary class .__setitem__
     method, wich attached to the dict without triggering a .save().
 
     An example Index ConfigDict as a json object, looks like this :
@@ -230,7 +72,13 @@ class ConfigDict(dict):
     """
 
     def __init__(
-        self, input_dict={}, /, *, parent: "Optional[ConfigDict]" = None, parent_key: Optional[str] = None, **kwargs
+        self,
+        input_dict={},
+        /,
+        *,
+        parent: "Optional[ConfigDict]" = None,
+        parent_key: Optional[str] = None,
+        **kwargs,
     ):
 
         super().__init__(input_dict, **kwargs)
@@ -248,7 +96,7 @@ class ConfigDict(dict):
     def index(self) -> "ConfigIndex":
         if self.parent == self:
             return self  # type: ignore
-        return self.parent.index 
+        return self.parent.index
 
     def __getitem__(self, key) -> Any:
         if self.index.last_read_time != self.index.path.stat().st_mtime:
@@ -269,7 +117,7 @@ class ConfigDict(dict):
 
     def _value_instanciation(self, key, value):
         if isinstance(value, dict):
-            cls = getattr(SpecialKeysEnum, self.parent_key, SpecialKeysEnum._DEFAULT)
+            cls = getattr(SpecialDictKeysEnum, self.parent_key, SpecialDictKeysEnum._DEFAULT)
             value = cls.value(value, parent=self, parent_key=key)
         return value
 
@@ -286,7 +134,7 @@ class ConfigIndex(ConfigDict):
 
     last_read_time = 0.0
 
-    def __init__(self, path: str | Path, config: Configuration):
+    def __init__(self, path: str | Path, config: "Configuration"):
         super().__init__()
         self.path = Path(path)
         self.config = config
@@ -314,7 +162,7 @@ class ConfigIndex(ConfigDict):
 
     @property
     def servers(self) -> "dict[str, ServerConfig]":
-        servers_map_key = SpecialKeysEnum.SERVERS_MAP.name
+        servers_map_key = SpecialDictKeysEnum.SERVERS_MAP.name
         if servers_map_key not in self.keys():
             self[servers_map_key] = {}
         return self[servers_map_key]
@@ -328,23 +176,31 @@ class ConfigIndex(ConfigDict):
     @default_server.setter
     def default_server(self, server_address: str):
         if not self.server_exists(server_address):
-            raise ValueError(f"Cannot set default_client to {server_address} because this client doesn't exist")
+            raise ValueError(
+                f"Cannot set default_client to {server_address} because this client doesn't exist"
+            )
         self["DEFAULT_SERVER"] = server_address
 
     def get_server(self, server_address: str) -> "ServerConfig":
         server_address = UrlValidator.validate_url(server_address)
         if not self.server_exists(server_address):
-            raise KeyError(f"Server address {server_address} does not exist in alyx config {self.path}")
+            raise KeyError(
+                f"Server address {server_address} does not exist in alyx config {self.path}"
+            )
         return self.servers[server_address]
 
     def set_server(self, server_address: str) -> "ServerConfig":
         server_address = UrlValidator.validate_url(server_address)
         if self.server_exists(server_address):
-            raise KeyError(f"Server address {server_address} already exists in alyx config {self.path}")
+            raise KeyError(
+                f"Server address {server_address} already exists in alyx config {self.path}"
+            )
         self.servers[server_address] = ServerConfig({}, parent=self, parent_key=server_address)
         return self.servers[server_address]
 
-    def server(self, server_address: Optional[str] = None, make_default : Optional[bool] = False) -> "ServerConfig":
+    def server(
+        self, server_address: Optional[str] = None, make_default: Optional[bool] = False
+    ) -> "ServerConfig":
 
         if server_address is not None:
             if not self.server_exists(server_address):
@@ -360,14 +216,18 @@ class ConfigIndex(ConfigDict):
                     default=self.default_server or "127.0.0.1",
                 )
                 if not server_address:
-                    raise ValueError(f"The server adress must be a valid string, you entered : {server_address}")
+                    raise ValueError(
+                        f"The server adress must be a valid string, you entered : {server_address}"
+                    )
                 server_address = UrlValidator.validate_url(server_address)
                 if self.server_exists(server_address):
                     server = self.get_server(server_address)
                 else:
                     server = self.set_server(server_address)
                 if not server.is_default() and make_default is None:
-                    make_default = Confirm.ask(f"Make {server.name} the default server for future connections ?")
+                    make_default = Confirm.ask(
+                        f"Make {server.name} the default server for future connections ?"
+                    )
                 if make_default:
                     server.make_default()
                 return server
@@ -382,10 +242,10 @@ class ConfigIndex(ConfigDict):
 
 
 class ServerConfig(ConfigDict):
-    """This class defines how items found in the SpecialKeysEnum.SERVERS_MAP should be implemented,
+    """This class defines how items found in the SpecialDictKeysEnum.SERVERS_MAP should be implemented,
     the helper functions shey should provide, and how they should behave.
     They define helper function to find the users already setup with the connector on that computer,
-    for the specific server they link to. 
+    for the specific server they link to.
     """
 
     @property
@@ -399,24 +259,30 @@ class ServerConfig(ConfigDict):
         self["DEFAULT_USER"] = value
 
     @property
-    def users(self) -> "dict[str, UserConfig]" :
-        users_map_key = SpecialKeysEnum.USERS_MAP.name
+    def users(self) -> "dict[str, UserConfig]":
+        users_map_key = SpecialDictKeysEnum.USERS_MAP.name
         if users_map_key not in self.keys():
             self[users_map_key] = {}
         return self[users_map_key]
 
     def get_user(self, username: str) -> "UserConfig":
         if not self.user_exists(username):
-            raise KeyError(f"User {username} does not exist for server {self.name} in alyx config {self.index.path}")
+            raise KeyError(
+                f"User {username} does not exist for server {self.name} in alyx config {self.index.path}"
+            )
         return self.users[username]
 
     def set_user(self, username: str) -> "UserConfig":
         if self.user_exists(username):
-            raise KeyError(f"User {username} already exists for server {self.name} in alyx config {self.index.path}")
+            raise KeyError(
+                f"User {username} already exists for server {self.name} in alyx config {self.index.path}"
+            )
         self.users[username] = UserConfig({}, parent=self, parent_key=username)
         return self.users[username]
 
-    def user(self, username: Optional[str] = None, make_default : Optional[bool] = None) -> "UserConfig":
+    def user(
+        self, username: Optional[str] = None, make_default: Optional[bool] = None
+    ) -> "UserConfig":
         """Main interface for getting user using automatic resolution, and setting with prompt interface.
         To set the user with code interface, use set_user.
         Retrieve or set the user for the current session.
@@ -443,14 +309,15 @@ class ServerConfig(ConfigDict):
             return self.get_user(username)
 
         else:  # user is None
-
             if self.default_user is None or self.index.config.force_prompt:
                 if self.index.config.silent:
                     raise ValueError(
-                        "Cannot find the default alyx user for " f"the server {self.name} as if has not been set"
+                        "Cannot find the default alyx user for "
+                        f"the server {self.name} as if has not been set"
                     )
                 username = Prompt.ask(
-                    f"Please enter the username that you use to connect to {self.name}", default=self.default_user
+                    f"Please enter the username that you use to connect to {self.name}",
+                    default=self.default_user,
                 )
                 if not username:
                     raise ValueError(f"Username must be a valid string, you entered : {username}")
@@ -493,7 +360,7 @@ class ServerConfig(ConfigDict):
 
 
 class UserConfig(ConfigDict):
-    """This class defines how items found in the SpecialKeysEnum.USERS_MAP should be implemented,
+    """This class defines how items found in the SpecialDictKeysEnum.USERS_MAP should be implemented,
     the helper functions shey should provide, and how they should behave.
     They provide information for a specific user, on a specific server (they have a ServerConfig class in their .parent stack)
     They also provide a way to know the location of the rest cache location for that specific user, on disk.
@@ -502,7 +369,9 @@ class UserConfig(ConfigDict):
     @property
     def rest_cache_location(self) -> Path:
         if "REST_CACHE_LOCATION" not in self.keys():
-            path = RequestsCache().root_path / f"{self.server.stringified_url}" / f"{self.username}"
+            path = (
+                RequestsCache().root_path / f"{self.server.stringified_url}" / f"{self.username}"
+            )
             path.mkdir(parents=True, exist_ok=True)
             self["REST_CACHE_LOCATION"] = str(path)
         return Path(self["REST_CACHE_LOCATION"])
@@ -565,13 +434,13 @@ class UserConfig(ConfigDict):
         """Make all default if yes, ask if None and not silent, else do nothing"""
         if self.is_all_default():
             return
-        if yes is None :
+        if yes is None:
             if self.index.config.silent:
                 return
             defaulting_obj = "server / user couple"
             if self.server.is_default():
                 defaulting_obj = "user"
-            else :
+            else:
                 if self.is_default():
                     defaulting_obj = "server"
                 # else we keep "server / user couple", if neither server not user are defaults already
@@ -597,22 +466,16 @@ class UserConfig(ConfigDict):
             setter = getattr(getattr(self, key), "fset")
             setter(value)
 
-class LocalData:
-    """Unused class (for now) meant to be used for obtaining the location of where the data 
-    locations obtained through alyx's data structure, should point to.
-    """
-    directory = Path.home() / "Downloads" / "alyx_data"
+    def __hash__(self) -> int:
+        return hash((self.server.url, self.username, self.token))
 
-class RequestsCache(Directory):
-    """Class used for locating where the cache generated by alyx's requests, should be stored.
-    """
-    directory_name = ".alyx_connector/requests_cache"
 
-class SpecialKeysEnum(Enum):
-    """Provides a relationship between a dictionnary's key, and the class that items 
-    from that dictionnnary Key should be instanciated with, for automatic ConfigDict 
+class SpecialDictKeysEnum(Enum):
+    """Provides a relationship between a dictionnary's key, and the class that items
+    from that dictionnnary Key should be instanciated with, for automatic ConfigDict
     load / save on edit machinery.
     """
+
     SERVERS_MAP = ServerConfig
     USERS_MAP = UserConfig
     _DEFAULT = ConfigDict
