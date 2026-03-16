@@ -1,0 +1,30 @@
+re_patterns: 
+  VGAT_MOUSE_NO: "Vgat.*?(\\d{1,3}).*jRGECO"
+  TIFF_FRAME_NO: ".*(\\d{5})\\.tiff?$"
+  TDMS_TRIALS_TABLE_TIME: "(\\d{4}_\\d{2}_\\d{2}_\\d{2}_\\d{2})\\.tdms$"
+  TDMS_VIDEO_TRIAL_NO: ".*?(\\d+)\\.tdms$"
+  FOV_NO: "^.*(?:(?:FOV)|(?:fieldOfView))[-_ \\.]*?(\\d+).*$"
+  CONDENSED_DATE: ".*?(20\\d{4,6}).*?"
+  SESSION_NO: ".*?20\\d{4,6}_(\\d).*?"
+  ALYX_PATH_EID: "\\w+(?:\\|\/)\\d{4}\\-\\d{2}\\-\\d{2}(?:\\|\/)\\d{3}"
+  IOI_WHISKER: "^([a-zA-Z0-9]+)"
+  IOI_WITH_VERSIONS: "^(?:stim.*?_)?([a-zA-Z0-9]+)(?:(?:_|.)((?:[vV]\\d+)|(?:crash)))?(?:stim)?.*$"
+
+rules :
+  imaging_data_rule1:
+    if: 
+      extension: 
+        in: ["tif", "tiff"]
+      collection:
+        contains: "imaging_data"
+    on: 
+      match: 
+        rename: 
+          object: "imaging"
+          attribute: "frames"
+          extra: 
+            pattern: "TIFF_FRAME_NO"
+            eval: "match[1].zfill(5)"
+            
+      destination_exists: abort
+      rename_unchanged: exclude

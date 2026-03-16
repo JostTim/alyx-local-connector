@@ -1,82 +1,40 @@
-from typing import Literal, Dict, Union
+from typing import TYPE_CHECKING, Dict, Literal, Protocol, Type, TypedDict, TypeVar, Union
 
-ElementNames = Literal[
-    "source_path",
-    "subject",
-    "date",
-    "number",
-    "root",
-    "object",
-    "attribute",
-    "extension",
-    "extra",
-    "collection",
-    "revision",
-]
+if TYPE_CHECKING:
+    from .actions import Action, Outcome, Trigger
+    from .records import Encapsulation, EncapsulationList
+    from .rules import Condition, Expression, Rule, Rules
+    from .validators import Options
 
-TriggerNames = Literal[
-    "match",
-    "destination_exists",
-    "invalid_alf_format",
-    "rename_unchanged",
-    "rename_error",
-    "rename_successfull",
-]
+EncapsulatedObject = TypeVar("EncapsulatedObject")
+Evaluated = TypeVar("Evaluated", bound="Encapsulation")
+EvaluatedList = TypeVar("EvaluatedList", bound="EncapsulationList")
 
 
-ActionNames = Literal[
-    "rename",
-    "include",
-    "delete",
-    "exclude",
-    "abort",
-]
+class MetaClass(Protocol):
+    options_class: "Type[Options]"
+    rules_class: "Type[Rules]"
+    rule_class: "Type[Rule]"
+    condition_class: "Type[Condition]"
+    expression_class: "Type[Expression]"
+    outcome_class: "Type[Outcome]"
+    trigger_class: "Type[Trigger]"
+    action_class: "Type[Action]"
 
-CheckFullOperation = Literal[
-    "exact",
-    "contain",
-    "match",
-    "exact_not",
-    "contain_not",
-    "match_not",
-]
-CheckOperation = Literal[
-    "exact",
-    "contain",
-    "match",
-]
 
-RulesConfig = Dict[
-    Literal[
-        "re_patterns",
-        "rules",
-        "excluded_folders",
-        "excluded_filenames",
-        "cleanup_folders",
-    ],
-    str | dict,
-]
+class ExpressionFunction(Protocol):
+    def __call__(self, value: str) -> bool: ...
 
-Rules = Dict[
-    Literal[
-        "if",
-        "on",
-        "overrides",
-        ActionNames,
-    ],
-    dict | list,
-]
 
-RenameElementRule = Union[
-    str,
-    Dict[
-        Literal[
-            "pattern",
-            "eval",
-            "search_on",
-        ],
-        str,
-    ],
-]
+class ActionFunction(Protocol):
+    def __call__(
+        self, evaluated: "Evaluated", evaluated_list: "EvaluatedList", *, message: str = ""
+    ) -> tuple[Evaluated, str] | Evaluated | None: ...
 
-Patterns = Dict[str, str]
+
+class ExecutionInfo(TypedDict):
+    action: str
+    trigger: str
+    message: str
+    completed: bool
+    traceback: str

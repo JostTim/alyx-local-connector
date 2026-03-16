@@ -1,14 +1,14 @@
+from copy import copy
+from datetime import datetime
 from pathlib import Path
 from re import compile
+from typing import Any, List, Optional, Tuple, TypedDict, Union, Unpack, cast
 from uuid import UUID as OriginalUUID
-from datetime import datetime
+
 from pandas import Series
-from copy import copy
 
-from .expressions import Part, Matcher
 from ...styling.table import TableStyler
-
-from typing import Optional, Any, TypedDict, List, Tuple, Unpack, Union, cast
+from .expressions import Matcher, Part
 
 
 class ObjectError(ValueError):

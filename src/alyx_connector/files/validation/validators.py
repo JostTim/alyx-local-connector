@@ -1,184 +1,144 @@
-import pkgutil
-import json
-import re
-import shutil
+from dataclasses import dataclass
 from pathlib import Path
-from pandas import Series
-from re import Pattern
-from typing import cast, Dict, Optional, List, TYPE_CHECKING
+from re import Pattern, compile
+from typing import Generic, Type
 
-from ...files import find_files
-from ...web.specifics import get_dataset_types
-from .records import FileRecordList, FileRecord
-from .typing import RulesConfig, Patterns
-
-if TYPE_CHECKING:
-    from .rules import Rule
-    from ...connector import Connector
+from .actions import Action, Outcome, Trigger
+from .records import EncapsulationList
+from .rules import Condition, Expression, Rule, Rules
+from .typing import Evaluated, EvaluatedList, MetaClass
 
 
-class Validator:
-    patterns: Dict[str, Pattern]
-    rules: Dict[str, Rule]
+class Options:
+    validator: "Validator"
 
-    def __init__(
-        self,
-        rules_path: Optional[str | Path] = None,
-        connector: "Optional[Connector]" = None,
-        session: Optional[Series] = None,
-    ):
-        from alyx_connector import Connector
+    @classmethod
+    def parse_from_dict(cls, meta: MetaClass, dico: dict) -> "Options":
+        return cls(**dico)
 
-        if session is not None and connector and not rules_path:
-            # TODO
-            if session["projects"].iloc[0]:
-                pass
+    def __init__(self, **kwargs):
+        for name, content in kwargs.items():
+            if hasattr(self, name):
+                setattr(self, f"_{name}", content)
+            else:
+                print(f"Setting {name}")
+                setattr(self, name, content)
 
-        if rules_path is None:
-            data = pkgutil.get_data(__name__, "./rules.json")
-            if data is None:
-                raise ValueError("Could not find a rules.json file !")
-            rules_config: RulesConfig = json.loads(data.decode("utf-8"))
-        else:
-            rules_config: RulesConfig = json.load(open(rules_path, "r"))
+    @property
+    def re_patterns(self) -> dict[str, Pattern]:
+        self._re_patterns = getattr(self, "_re_patterns", {})
+        for key, value in self._re_patterns.items():
+            if isinstance(value, str):
+                self._re_patterns[key] = compile(value)
+        return self._re_patterns
 
-        self.connector = connector if connector else Connector()
+    def bind_to(self, validator: "Validator") -> "Options":
+        self.validator = validator
+        return self
 
-        patterns: Patterns = rules_config.get("re_patterns", {})  # type: ignore
-        compiled_paterns = {}
-        for pattern_name, pattern in patterns.items():
-            compiled_paterns[pattern_name] = re.compile(pattern)
-        self.patterns = compiled_paterns
+    def _finalize(self):
+        pass
 
-        rules: Dict[str, Rule] = rules_config["rules"]  # type: ignore
 
-        self.rules = {
-            rule_name: Rule(rule_dict, rule_name, self) for rule_name, rule_dict in rules.items()
-        }
+@dataclass
+class Validator(Generic[Evaluated]):
+    rules: "Rules"
+    options: "Options"
 
-        self.excluded_folders = rules_config.get("excluded_folders", [])
+    class Meta:
+        encapsulation_list_class: Type[EncapsulationList] = EncapsulationList
+        options_class: Type[Options] = Options
+        rules_class: Type[Rules] = Rules
+        rule_class: Type[Rule] = Rule
+        condition_class: Type[Condition] = Condition
+        expression_class: Type[Expression] = Expression
+        outcome_class: Type[Outcome] = Outcome
+        trigger_class: Type[Trigger] = Trigger
+        action_class: Type[Action] = Action
 
-        self.excluded_filenames = rules_config.get("excluded_filenames", [])
+    @classmethod
+    def from_json_file(cls, pathlike: str | Path) -> "Validator":
+        import json
 
-        self.cleanup_folders = rules_config.get("cleanup_folders", [])
+        with open(pathlike, "r", encoding="utf-8") as f:
+            return cls.parse_from_dict(json.load(f))
 
-        self.dataset_types = get_dataset_types(self.connector)
-        if len(self.dataset_types) == 0:
-            raise ValueError(
-                "dataset_types is empty. Cannot register any dataset if no dataset type exists. Maybe one's connector"
-                " has a problem ?"
-            )
+    @classmethod
+    def from_json_string(cls, string: str) -> "Validator":
+        import json
 
-    def registration_pipeline(self, session):
-        file_records = self.evaluate_session(session)
-        if not self.is_applicable(file_records):
-            print("Some conflicts are present, cannot continue.")
-            return file_records
-        selected_records = self.apply_to_files(file_records)
-        records_groups = self.apply_to_alyx(selected_records, session)
-        return records_groups
+        return cls.parse_from_dict(json.loads(string))
 
-    def evaluate_session(self, session: Series | str) -> FileRecordList:
+    @classmethod
+    def from_toml_file(cls, pathlike: str | Path) -> "Validator":
+        import tomllib
 
-        if isinstance(session, Series):
-            search_folder = Path(session["path"])
-        else:  # session is a string, not a Series
-            session = cast(
-                Series, self.connector.search(id=session, no_cache=True, details=True)["path"]
-            )
-            search_folder = Path(session["path"])
+        with open(pathlike, "rb") as f:
+            return cls.parse_from_dict(tomllib.load(f))
 
-        if not Path(search_folder).exists():
-            raise ValueError(
-                "The session.path must exist and correspond to an existing repository"
-            )
+    @classmethod
+    def from_yaml_file(cls, pathlike: str | Path) -> "Validator":
+        from yaml import load
 
-        files_list = find_files(search_folder, relative=False, levels=-1, get="files")
+        from .rules_io import SafeLoader
 
-        file_records = self.evaluate(files_list)
-        file_records.session = session
-        return file_records
+        with open(pathlike, "r", encoding="utf-8") as f:
+            return cls.parse_from_dict(load(f, SafeLoader))
 
-    def evaluate(self, file_list: List[str] | List[Path]) -> FileRecordList:
-        file_records = FileRecordList([FileRecord(Path(file_path)) for file_path in file_list])
+    @classmethod
+    def parse_from_dict(cls, dico: dict) -> "Validator":
+        dico = dico.copy()
+        meta = cls._resolve_meta()
+        rules = meta.rules_class.parse_from_dict(meta, dico.pop("rules", {}))
+        options = meta.options_class.parse_from_dict(meta, dico)
+        return cls(rules, options)
 
-        for file_record in file_records:
-            skip = False  # If we find that a find is in the excluded folders, we just discard it (not even try to match)
-            if file_record.destination_file.collection:
-                if any(
-                    [
-                        collection in self.excluded_folders
-                        for collection in file_record.destination_file.collection.parts
-                    ]
-                ):
-                    skip = True
-            if file_record.source_path.name in self.excluded_filenames:  # same for filenames
-                skip = True
-            if skip:
-                continue
+    def __post_init__(self):
+        self.rules.bind_to(self)
+        self.options.bind_to(self)
+        self._finalize()
 
+    def _finalize(self):
+        self.options._finalize()
+        self.rules._finalize()
+
+    @property
+    def _meta(self) -> "Meta":
+        if not hasattr(self, "_meta_memory"):
+            self._meta_memory = self.__class__._resolve_meta()
+        return self._meta_memory
+
+    @classmethod
+    def _resolve_meta(cls) -> "Meta":
+        """
+        Return an object with the effective Meta options for `cls`,
+        where user overrides (cls.Meta) override base defaults.
+        """
+
+        # collect Meta classes from base -> derived so derived wins
+        metas = []
+        for classtype in reversed(cls.__mro__):
+            meta = classtype.__dict__.get("Meta")
+            if meta is not None:
+                metas.append(meta)
+
+        # merge attributes (skip dunder/private)
+        merged = {}
+        for meta in metas:
+            for key, value in meta.__dict__.items():
+                if not key.startswith("_"):
+                    merged[key] = value
+
+        # return a simple 'Meta' class instance
+        return type("Meta", (), merged)  # ty:ignore[invalid-return-type]
+
+    def apply(self, evaluated_list: EvaluatedList, allowed_triggers: list[str]):
+        for evaluated, list_without_evaluated in evaluated_list.iter_pop():
             for rule in self.rules.values():
-                rule.evaluate(file_record)
-        self.actions_cascade(file_records)
-        return file_records
+                rule.apply(evaluated, list_without_evaluated, allowed_triggers)
 
-    def actions_cascade(self, file_records: FileRecordList):
-        file_records.actions_cascade(self)
-        file_records.finish_cascade(self)
-        file_records.check_duplicate_final_paths()
-        return file_records
-
-    def is_applicable(self, file_records):
-        status = [len(file_record.abort) >= 1 for file_record in file_records]
-        return not (any(status))
-
-    def apply_to_files(
-        self, file_records: FileRecordList, do_deletes=True, do_renames=True, do_cleanup=True
-    ):
-        # DELETING and RENAMING
-
-        for file_record in file_records:
-            file_record.apply_changes(do_deletes, do_renames)
-
-        # just cleaning up empty folders after renaming.
-        # could be improved to do recursive search.
-        # this implementation may miss nested empty folders
-        if do_cleanup:
-            session_path = file_records[0].source_file.session_path
-            folders_list = find_files(session_path, relative=True, levels=-1, get="folders")
-            for folder in folders_list:
-                if str(folder) in self.cleanup_folders:
-                    _folder_path = session_path / folder
-                    files_in_dir = find_files(_folder_path, relative=True, levels=-1, get="files")
-                    if len(files_in_dir):
-                        continue  # folder is not empty, we cannot clean it up
-                    shutil.rmtree(_folder_path, ignore_errors=True)
-
-        return file_records
-
-    def apply_to_alyx(self, file_records: FileRecordList, session: Optional[Series] = None):
-
-        if session is None:
-            session = file_records.session
-
-        if session is None:
-            raise ValueError("A session must be provided")
-
-        selected_records: List[FileRecord] = []
-        for file_record in file_records:
-            if file_record.inclusion_accepted:
-                selected_records.append(file_record)
-
-        files_list = [
-            file_record.destination_file.fullpath
-            if file_record.rename
-            else file_record.source_path
-            for file_record in selected_records
-        ]
-
-        self.connector.register.files(session, files_list)
-
-    def __str__(self):
-        spacer = "\n- "
-        rules_str = spacer + spacer.join([str(rule) + "\n" for rule in self.rules.values()])
-        return f"One-Registrator with configured rules : \n{rules_str}"
+    def evaluate(self, evaluated_list: EvaluatedList):
+        for evaluated in evaluated_list:
+            for rule in self.rules.values():
+                rule.evaluate(evaluated)
+            self.rules.resolve_selected_rule(evaluated)

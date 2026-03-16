@@ -4,11 +4,7 @@ from typing import cast
 from alyx_connector import Connector
 from pathlib import Path
 import responses
-from responses.matchers import (
-    urlencoded_params_matcher, 
-    header_matcher, 
-    query_param_matcher
-)
+from responses.matchers import urlencoded_params_matcher, header_matcher, query_param_matcher
 
 SERVER_URL = "http://127.0.0.1:80"
 VALID_TOKEN = "1234657988abcbdefg"
@@ -19,6 +15,7 @@ AUTH_MATCHER = header_matcher(
         "Accept": "application/json",
     }
 )
+
 
 @pytest.fixture
 def api_schema():
@@ -39,11 +36,18 @@ def connector():
         url=SERVER_URL + "/api/auth-token",
         json={"token": VALID_TOKEN},
         status=201,
-        match=[urlencoded_params_matcher({"username": username, "password": password})],  # Add matcher for request data
+        match=[
+            urlencoded_params_matcher({"username": username, "password": password})
+        ],  # Add matcher for request data
     )
 
     connector = Connector.setup(
-        username=username, url=SERVER_URL, password=password, auto_authenticate=True, make_default=True, silent=True
+        username=username,
+        url=SERVER_URL,
+        password=password,
+        auto_authenticate=True,
+        make_default=True,
+        silent=True,
     )
     return connector
 
@@ -77,19 +81,25 @@ def test_responses_configuration():
         url=SERVER_URL + "/api/auth-token",
         json={"token": VALID_TOKEN},
         status=201,
-        match=[urlencoded_params_matcher({"username": username, "password": password})],  # Add matcher for request data
+        match=[
+            urlencoded_params_matcher({"username": username, "password": password})
+        ],  # Add matcher for request data
     )
 
-    resp = requests.post(SERVER_URL + "/api/auth-token", data={"username": username, "password": password})
+    resp = requests.post(
+        SERVER_URL + "/api/auth-token", data={"username": username, "password": password}
+    )
     token = cast(dict, resp.json()).get("token")
     assert token == VALID_TOKEN
 
     with pytest.raises(requests.exceptions.ConnectionError):
-        resp = requests.post(SERVER_URL + "/api/auth-token", data={"username": username, "password": "wrong_pass"})
+        resp = requests.post(
+            SERVER_URL + "/api/auth-token", data={"username": username, "password": "wrong_pass"}
+        )
 
 
 def test_connector_configuration(connector: Connector):
-    assert connector.remote.is_authenticated()
+    assert connector.remote.authenticator.is_authenticated()
 
 
 @responses.activate
@@ -98,7 +108,9 @@ def test_invalid_connector_username_configuration():
     wrong_username = "wrong_user"
     wrong_password = "wrong_password"
 
-    user_password_matcher = urlencoded_params_matcher({"username": wrong_username, "password": wrong_password})
+    user_password_matcher = urlencoded_params_matcher(
+        {"username": wrong_username, "password": wrong_password}
+    )
     # correct values in the server
     responses.add(
         method=responses.POST,
@@ -109,7 +121,11 @@ def test_invalid_connector_username_configuration():
     )
     with pytest.raises(requests.exceptions.HTTPError):
         Connector.setup(
-            username=wrong_username, url=SERVER_URL, password=wrong_password, make_default=True, force_prompt=False
+            username=wrong_username,
+            url=SERVER_URL,
+            password=wrong_password,
+            make_default=True,
+            force_prompt=False,
         )
 
 
@@ -118,7 +134,7 @@ def test_connector_simple_session_search(connector_with_schema: Connector):
 
     responses.add(
         method=responses.GET,
-        url=SERVER_URL + "/sessions",
+        url=SERVER_URL + "/api/sessions",
         match=[AUTH_MATCHER],
         json=[
             {"id": "516854984651984", "subject": "ea04", "date": "2023-11-21", "number": 1},
@@ -128,7 +144,7 @@ def test_connector_simple_session_search(connector_with_schema: Connector):
         status=200,
     )
 
-    sessions = connector_with_schema.search(endpoint="sessions", details=False)
+    sessions = connector_with_schema.remote.search(endpoint="sessions", details=False)
     assert sorted(sessions["subject"].unique().tolist()) == ["ea03", "ea04"]
 
 
@@ -139,7 +155,7 @@ def test_connector_simple_filtered_session_search(connector_with_schema: Connect
 
     responses.add(
         method=responses.GET,
-        url=SERVER_URL + "/sessions",
+        url=SERVER_URL + "/api/sessions",
         match=[AUTH_MATCHER, subject_matcher],
         json=[
             {"id": "516854984651984", "subject": "ea04", "date": "2023-11-21", "number": 1},
@@ -148,7 +164,9 @@ def test_connector_simple_filtered_session_search(connector_with_schema: Connect
         status=200,
     )
 
-    sessions = connector_with_schema.search(endpoint="sessions", subject="ea04", details=False)
+    sessions = connector_with_schema.remote.search(
+        endpoint="sessions", subject="ea04", details=False
+    )
     assert sorted(sessions["subject"].unique().tolist()) == ["ea04"]
 
 
@@ -159,7 +177,7 @@ def test_connector_detailed_filtered_session_search(connector_with_schema: Conne
 
     responses.add(
         method=responses.GET,
-        url=SERVER_URL + "/sessions",
+        url=SERVER_URL + "/api/sessions",
         match=[AUTH_MATCHER, subject_matcher],
         json=[
             {"id": "516854984651984", "subject": "ea04", "date": "2023-11-21", "number": 1},
@@ -170,7 +188,7 @@ def test_connector_detailed_filtered_session_search(connector_with_schema: Conne
 
     responses.add(
         method=responses.GET,
-        url=SERVER_URL + "/sessions/516854984651984",
+        url=SERVER_URL + "/api/sessions/516854984651984",
         match=[AUTH_MATCHER],
         json={
             "id": "516854984651984",
@@ -185,7 +203,7 @@ def test_connector_detailed_filtered_session_search(connector_with_schema: Conne
 
     responses.add(
         method=responses.GET,
-        url=SERVER_URL + "/sessions/168498484198415",
+        url=SERVER_URL + "/api/sessions/168498484198415",
         match=[AUTH_MATCHER],
         json={
             "id": "168498484198415",
@@ -198,6 +216,8 @@ def test_connector_detailed_filtered_session_search(connector_with_schema: Conne
         status=200,
     )
 
-    sessions = connector_with_schema.search(endpoint="sessions", subject="ea04", details=True)
+    sessions = connector_with_schema.remote.search(
+        endpoint="sessions", subject="ea04", details=True
+    )
     assert sorted(sessions["subject"].unique().tolist()) == ["ea04"]
     assert sorted(sessions["qc"].unique().tolist()) == ["FAIL", "PASS"]

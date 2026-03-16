@@ -61,7 +61,7 @@ include = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb --cov-report xml --cov=alyx_connector --junitxml=pytest_results.xml --cov-config=pyproject.toml"
+addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb --cov-report xml --cov=alyx_connector --junitxml=pytest_results.xml"
 testpaths = ["tests"]
 
 [tool.coverage.run]
@@ -78,7 +78,6 @@ exclude = [
     "test_imports.py",
     "build",
     "dist",
-    "brainbox/examples/",
 ]
 ignore = ["W504", "W503", "E266"]
 max-line-length = 99

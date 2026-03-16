@@ -86,6 +86,7 @@ class Connector(metaclass=Singleton):
         make_default=None,
         silent=False,
         password=None,
+        force_prompt=True,
         **user_options,
     ) -> "Connector":
 
@@ -103,7 +104,7 @@ class Connector(metaclass=Singleton):
             make_default=make_default,
             password=password,
             silent=silent,
-            force_prompt=True,
+            force_prompt=force_prompt,
             # if some fields are left to None, then we ask
             # for the value instead of using the defaults,
             # as this is the setup method, not the standard

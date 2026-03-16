@@ -1,0 +1,466 @@
+{
+    "re_patterns": {
+        "VGAT_MOUSE_NO": "Vgat.*?(\\d{1,3}).*jRGECO",
+        "TIFF_FRAME_NO": ".*(\\d{5})\\.tiff?$",
+        "TDMS_TRIALS_TABLE_TIME": "(\\d{4}_\\d{2}_\\d{2}_\\d{2}_\\d{2})\\.tdms$",
+        "TDMS_VIDEO_TRIAL_NO": ".*?(\\d+)\\.tdms$",
+        "FOV_NO": "^.*(?:(?:FOV)|(?:fieldOfView))[-_ \\.]*?(\\d+).*$",
+        "CONDENSED_DATE": ".*?(20\\d{4,6}).*?",
+        "SESSION_NO": ".*?20\\d{4,6}_(\\d).*?",
+        "ALYX_PATH_EID": "\\w+(?:\\|\/)\\d{4}\\-\\d{2}\\-\\d{2}(?:\\|\/)\\d{3}",
+        "IOI_WHISKER": "^([a-zA-Z0-9]+)",
+        "IOI_WITH_VERSIONS": "^(?:stim.*?_)?([a-zA-Z0-9]+)(?:(?:_|.)((?:[vV]\\d+)|(?:crash)))?(?:stim)?.*$"
+    },
+    "rules": {
+        "imaging_data_rule1": {
+            "if": {
+                "extension": {
+                    "exact": [
+                        "tif",
+                        "tiff"
+                    ]
+                },
+                "collection": {
+                    "contain": "imaging_data"
+                }
+            },
+            "on": {
+                "match": "rename",
+                "destination_exists": "abort",
+                "rename_unchanged": "exclude"
+            },
+            "rename": {
+                "object": "imaging",
+                "attribute": "frames",
+                "extra": {
+                    "pattern": "TIFF_FRAME_NO",
+                    "eval": "match[1].zfill(5)"
+                }
+            }
+        },
+        "imaging_data_rule2": {
+            "if": {
+                "object": "imaging",
+                "attribute": "frames",
+                "extra": {
+                    "exact_not": ""
+                }
+            },
+            "on": {
+                "match": "include"
+            },
+            "overrides": [
+                "imaging_data_rule1"
+            ]
+        },
+        "behavior_pupil_rule1": {
+            "if": {
+                "extension": "tdms",
+                "collection": {
+                    "contain": [
+                        "pupil"
+                    ]
+                }
+            },
+            "on": {
+                "match": "rename"
+            },
+            "rename": {
+                "object": "behaviour",
+                "attribute": "video",
+                "collection": "behaviour_imaging\\pupil",
+                "extra": {
+                    "pattern": "TDMS_VIDEO_TRIAL_NO",
+                    "eval": "'pupil.' + match[1].zfill(5)"
+                }
+            }
+        },
+        "behavior_whiskers_rule1": {
+            "if": {
+                "extension": "tdms",
+                "collection": {
+                    "contain": [
+                        "whiskers",
+                        "whisker"
+                    ]
+                }
+            },
+            "on": {
+                "match": "rename"
+            },
+            "rename": {
+                "object": "behaviour",
+                "attribute": "video",
+                "collection": "behaviour_imaging\\whiskers",
+                "extra": {
+                    "pattern": "TDMS_VIDEO_TRIAL_NO",
+                    "eval": "'whiskers.' + match[1].zfill(5)"
+                }
+            }
+        },
+        "field_of_view_png_rule1": {
+            "if": {
+                "extension": [
+                    "png",
+                    "PNG"
+                ],
+                "collection": [
+                    "",
+                    "imaging_data"
+                ],
+                "object": {
+                    "contain": [
+                        "FOV",
+                        "imaging"
+                    ]
+                }
+            },
+            "on": {
+                "match": "rename"
+            },
+            "rename": {
+                "object": "imaging",
+                "attribute": "fieldOfView",
+                "collection": "imaging_data",
+                "extra": {
+                    "pattern": "FOV_NO",
+                    "eval": "match[1].zfill(2) if match is not None and match.lastindex > 0 else ''"
+                }
+            }
+        },
+        "behavior_timeline_tdms_rule1": {
+            "if": {
+                "extension": "tdms",
+                "collection": ""
+            },
+            "on": {
+                "match": "rename"
+            },
+            "rename": {
+                "object": "trials",
+                "attribute": "eventTimeline",
+                "extra": ""
+            }
+        },
+        "behavior_timeline_tdms_rule2": {
+            "if": {
+                "extension": "tdms",
+                "collection": "imaging_data",
+                "object": {
+                    "contain": [
+                        "VGAT",
+                        "EGFP"
+                    ]
+                }
+            },
+            "on": {
+                "match": "rename"
+            },
+            "rename": {
+                "object": "trials",
+                "attribute": "eventTimeline",
+                "collection": "",
+                "extra": ""
+            },
+            "overrides": [
+                "behavior_timeline_tdms_rule1"
+            ]
+        },
+        "intrinsic_imaging_tdms_rule1": {
+            "if": {
+                "extension": "tdms",
+                "collection": {
+                    "exact": [
+                        "intrinsic_optical_imaging",
+                        "IOI"
+                    ]
+                }
+            },
+            "on": {
+                "match": "rename"
+            },
+            "rename": {
+                "object": "imaging_intrinsic",
+                "attribute": "delta_stim_images",
+                "extra": {
+                    "search_on": "source_filename",
+                    "pattern": "IOI_WITH_VERSIONS",
+                    "eval": "match[1] + ('.' + match[2] if match.lastindex > 1 else '')"
+                },
+                "collection": "intrinsic_optical_imaging"
+            }
+        },
+        "intrinsic_imaging_vessels_rule1": {
+            "if": {
+                "extension": [
+                    "",
+                    "tiff"
+                ],
+                "collection": {
+                    "exact": [
+                        "intrinsic_optical_imaging",
+                        "IOI"
+                    ]
+                },
+                "object": {
+                    "contain": [
+                        "reference",
+                        "green",
+                        "Green",
+                        "FOV",
+                        "fov"
+                    ]
+                }
+            },
+            "on": {
+                "match": "rename"
+            },
+            "rename": {
+                "object": "imaging_intrinsic",
+                "attribute": "vessels_reference",
+                "extension": "tiff",
+                "collection": "intrinsic_optical_imaging"
+            }
+        },
+        "intrinsic_imaging_binaries_rule1": {
+            "if": {
+                "extension": [
+                    ""
+                ],
+                "collection": {
+                    "exact": [
+                        "intrinsic_optical_imaging",
+                        "IOI"
+                    ]
+                },
+                "object": {
+                    "contain_not": [
+                        "reference",
+                        "green",
+                        "Green"
+                    ]
+                }
+            },
+            "on": {
+                "match": "rename"
+            },
+            "rename": {
+                "object": "imaging_intrinsic",
+                "attribute": "bin_delta_stim_images",
+                "extension": "binlv",
+                "collection": "intrinsic_optical_imaging",
+                "extra": {
+                    "search_on": "source_filename",
+                    "pattern": "IOI_WITH_VERSIONS",
+                    "eval": "match[1] + ('.' + match[2] if match.lastindex > 1 else '')"
+                }
+            }
+        },
+        "intrinsic_imaging_alredy_renamed_versions_rule1": {
+            "if": {
+                "collection": {
+                    "exact": [
+                        "intrinsic_optical_imaging"
+                    ]
+                },
+                "object": {
+                    "exact": "imaging_intrinsic"
+                },
+                "attribute": {
+                    "exact": [
+                        "delta_stim_images",
+                        "bin_delta_stim_images",
+                        "vessels_reference"
+                    ]
+                },
+                "extension": {
+                    "exact": [
+                        "binlv",
+                        "tdms",
+                        "tiff"
+                    ]
+                }
+            },
+            "on": {
+                "match": "include"
+            },
+            "overrides": [
+                "intrinsic_imaging_binaries_rule1",
+                "intrinsic_imaging_vessels_rule1",
+                "intrinsic_imaging_tdms_rule1"
+            ]
+        },
+        "behavior_trigger_text_pupil_rule1": {
+            "if": {
+                "extension": "txt",
+                "collection": {
+                    "contain": [
+                        "pupil"
+                    ]
+                },
+                "object": "Trigger"
+            },
+            "on": {
+                "match": "rename"
+            },
+            "rename": {
+                "object": "behaviour",
+                "attribute": "video_triggers",
+                "collection": "behaviour_imaging\\pupil",
+                "extra": "pupil"
+            }
+        },
+        "behavior_trigger_text_whiskers_rule1": {
+            "if": {
+                "extension": "txt",
+                "collection": {
+                    "contain": [
+                        "whiskers",
+                        "whisker"
+                    ]
+                },
+                "object": "Trigger"
+            },
+            "on": {
+                "match": "rename"
+            },
+            "rename": {
+                "object": "behaviour",
+                "attribute": "video_triggers",
+                "collection": "behaviour_imaging\\whiskers",
+                "extra": "whiskers"
+            }
+        },
+        "behavior_cam_settings_text_pupil_rule1": {
+            "if": {
+                "extension": "txt",
+                "collection": {
+                    "contain": [
+                        "pupil"
+                    ]
+                },
+                "object": "CameraSettings"
+            },
+            "on": {
+                "match": "rename"
+            },
+            "rename": {
+                "object": "behaviour",
+                "attribute": "camera_settings",
+                "collection": "behaviour_imaging\\pupil",
+                "extra": "pupil"
+            }
+        },
+        "behavior_cam_settings_text_whiskers_rule1": {
+            "if": {
+                "extension": "txt",
+                "collection": {
+                    "contain": [
+                        "whiskers",
+                        "whisker"
+                    ]
+                },
+                "object": "CameraSettings"
+            },
+            "on": {
+                "match": "rename"
+            },
+            "rename": {
+                "object": "behaviour",
+                "attribute": "camera_settings",
+                "collection": "behaviour_imaging\\whiskers",
+                "extra": "whiskers"
+            }
+        },
+        "behavior_cam_sessings_include_rule": {
+            "if": {
+                "extension": "txt",
+                "collection": {
+                    "exact": [
+                        "behaviour_imaging\\whiskers",
+                        "behaviour_imaging\\pupil"
+                    ]
+                },
+                "object": "behaviour",
+                "attribute": "camera_settings",
+                "extra": {
+                    "exact": [
+                        "whiskers",
+                        "pupil"
+                    ]
+                }
+            },
+            "on": {
+                "match": "include"
+            },
+            "overrides": [
+                "behavior_cam_settings_text_whiskers_rule1",
+                "behavior_cam_settings_text_pupil_rule1"
+            ]
+        },
+        "delete_tdms_index_rule1": {
+            "if": {
+                "extension": "tdms_index"
+            },
+            "on": {
+                "match": "delete"
+            },
+            "overrides": [
+                "intrinsic_imaging_exclude_versions_rule1"
+            ]
+        },
+        "exclude_Thumbs_rule1": {
+            "if": {
+                "extension": "db",
+                "object": "Thumbs"
+            },
+            "on": {
+                "match": "exclude"
+            }
+        },
+        "exclude_svg_files_rule1": {
+            "if": {
+                "extension": [
+                    "svg",
+                    "SVG"
+                ]
+            },
+            "on": {
+                "match": "exclude"
+            }
+        },
+        "include_test_data_rule": {
+            "if": {
+                "collection": "DELETE_LATER_JUST_A_TEST"
+            },
+            "on": {
+                "match": "include"
+            }
+        }
+    },
+    "excluded_folders": [
+        "figures",
+        "preprocessing_saves",
+        "screen_captures",
+        "suite2p",
+        "screenshots",
+        "trash",
+        "draft",
+        "scratch",
+        "Fiji_analysis",
+        "fiji_analysis",
+        "fijianalysis",
+        "Fiji_Analysis",
+        "FijiAnalysis",
+        "fijiAnalysis"
+    ],
+    "excluded_filenames": [
+        "session_meta.json",
+        "pipelines_arguments.json"
+    ],
+    "cleanup_folders": [
+        "pupil",
+        "whiskers",
+        "whisker"
+    ]
+}

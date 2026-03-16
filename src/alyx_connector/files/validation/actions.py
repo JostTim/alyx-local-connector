@@ -1,49 +1,41 @@
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Tuple, Protocol
-from .typing import ElementNames, RenameElementRule
+from inspect import getfullargspec
+from traceback import format_exc
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
+
+from .typing import ActionFunction, Evaluated, EvaluatedList, ExecutionInfo, MetaClass
 
 if TYPE_CHECKING:
     from .rules import Rule
-    from .records import FileRecord
-
-
-class ActionFunction(Protocol):
-    def __call__(
-        self, file_record: "FileRecord", source: str, *, message: str = ""
-    ) -> "FileRecord": ...
+    from .validators import Validator
 
 
 @dataclass
-class Actions:
-    # allowed_actions = ["rename", "include", "delete", "exclude", "abort"]
-    # allowed_triggers = [
-    #     "match",
-    #     "destination_exists",
-    #     "rename_unchanged",
-    #     "rename_error",
-    #     "rename_successfull",
-    # ]
-    # triggers: Dict[TriggerNames, ActionNames]
-    # parent: "Rule"
+class Outcome(Generic[Evaluated]):
+    triggers: "dict[str, Trigger]"
 
-    actions: "list[Action]"
+    # methods for type checking
+    rule: "Rule" = field(init=False)
 
     @classmethod
-    def parse_from_dict(cls, dico: dict) -> "Actions":
-        actions = []
+    def parse_from_dict(cls, meta: MetaClass, dico: dict) -> "Outcome":
+        triggers = {}
         for key, value in dico.items():
-            actions.append(Action.parse_from_dict(key, value))
-        return cls(actions)
+            trigger = meta.trigger_class.parse_from_dict(meta, key, value)
+            triggers[trigger.name] = trigger
+        return cls(triggers)
 
     def __post_init__(self):
-        for action in self.actions:
-            action.bind_to(self)
+        for triggers in self.triggers.values():
+            triggers.bind_to(self)
 
-        if not any(action.trigger == "match" for action in self.actions):
+    def _finalize(self):
+        if "match" not in self.triggers.keys():
             raise ValueError(
                 f"match action was not defined in rule {self.rule.name}. Must be defined. "
                 "Set on : match to null if you wish to keep the rule but make it inactive."
             )
+
         allowed_triggers = [
             "match",
             "destination_exists",
@@ -51,6 +43,100 @@ class Actions:
             "rename_error",
             "rename_successfull",
         ]
+
+        for trigger_name in self.triggers.keys():
+            if trigger_name not in allowed_triggers:
+                raise ValueError(
+                    f"Trigger {trigger_name} in rule {self.rule.name} is invalid. Valid keys are {','.join(allowed_triggers)}"
+                )
+
+    def bind_to(self, rule: "Rule") -> "Outcome":
+        self.rule = rule
+        return self
+
+    @property
+    def validator(self) -> "Validator":
+        return self.rule.validator
+
+    def get_trigger_for(self, trigger_name: str, fallback_to_default=True) -> "Trigger":
+        if trigger_name in self.triggers.keys():
+            return self.triggers[trigger_name]
+        if not fallback_to_default:
+            raise ValueError(f"No trigger {trigger_name} was found for rule {self.rule.name}")
+
+        return self.get_default_for(trigger_name)
+
+    def get_default_for(self, trigger_name: str) -> "Trigger":
+        meta = self.validator._meta
+        dico = meta.trigger_class.defaults[trigger_name]
+        return meta.trigger_class.parse_from_dict(meta, trigger_name, dico).bind_to(self)
+
+    def apply(
+        self, evaluated: Evaluated, evaluated_list: EvaluatedList, allowed_triggers: list[str]
+    ) -> "Evaluated":
+
+        while evaluated.has_allowed_pending_triggers(allowed_triggers):
+            for trigger_name, trigger_kwargs in evaluated.allowed_pending_triggers(
+                allowed_triggers
+            ):
+                trigger = self.get_trigger_for(
+                    trigger_name, fallback_to_default=False if trigger_name == "name" else True
+                )
+                trigger.apply(evaluated, evaluated_list, **trigger_kwargs)
+                # trigger.apply adds the trigger name to evaluated's executed_triggers dict,
+                # so it won't trigger again on that encapsulated object
+        return evaluated
+
+
+@dataclass
+class Trigger(Generic[Evaluated]):
+    """
+    example for defaults :
+
+
+    """
+
+    name: str
+    actions: "dict[str, Action]"
+
+    # Non initializable properties
+
+    # default trigger names to actions mapping
+    defaults: dict[str, str | list[str] | dict[str, dict[str, Any]]] = field(
+        default_factory=dict, init=False
+    )
+
+    # typing properties
+    outcome: "Outcome" = field(init=False)
+
+    @classmethod
+    def parse_from_dict(
+        cls, meta: MetaClass, name: str, dico: dict[str, dict[str, Any]] | list[str] | str
+    ) -> "Trigger":
+
+        actions: dict[str, Action] = {}
+        if isinstance(dico, dict):
+            for action_name, arguments in dico.items():
+                actions[action_name] = meta.action_class(action_name, arguments)
+        elif isinstance(dico, list):
+            for action_name in dico:
+                actions[action_name] = meta.action_class(action_name)
+        else:
+            action_name = str(dico)
+            actions = {action_name: meta.action_class(action_name)}
+
+        return cls(name, actions)
+
+    def __post_init__(self):
+        for action in self.actions.values():
+            action.bind_to(self)
+
+    def bind_to(self, outcome: "Outcome") -> "Trigger":
+        self.outcome = outcome
+        return self
+
+    def _finalize(self):
+        # TODO make this modular using connected parent / child links and Validator's Meta Class
         allowed_actions = [
             "rename",
             "include",
@@ -59,105 +145,58 @@ class Actions:
             "abort",
         ]
 
-        for action in self.actions:
-            if action.trigger not in allowed_triggers:
+        for action_name in self.actions.keys():
+            if action_name not in allowed_actions:
                 raise ValueError(
-                    f"Trigger {action.trigger} in rule {self.rule.name} is invalid. Valid keys are {','.join(allowed_triggers)}"
+                    f"Action {action_name} in trigger {self.name} in rule "
+                    f"{self.rule.name} is invalid. Valid keys are "
+                    f"{','.join(allowed_actions)}"
                 )
-            if action.method_name not in allowed_actions:
-                raise ValueError(
-                    f"Action {action.method_name} in trigger {action.trigger} in rule {self.rule.name} is invalid. Valid keys are"
-                    f" {','.join(allowed_actions)}"
-                )
-
-    def bind_to(self, rule: "Rule") -> "Actions":
-        self.rule = rule
-        return self
 
     @property
-    def patterns(self):
-        return self.rule.patterns
+    def rule(self) -> "Rule":
+        return self.outcome.rule
 
-    def get_action_for(self, trigger: str) -> "Action | None":
-        for action in self.actions:
-            if action.trigger == trigger:
-                return action
-        return None
+    @property
+    def validator(self) -> "Validator":
+        return self.rule.validator
 
-    def get_action_function_for(self, trigger: str, *, default: str) -> ActionFunction:
-        action = self.get_action_for(trigger)
-        action = action or Action(trigger, default)  # if get_action_for returned None
-        action.bind_to(self)
-        return action.method
+    # def get_trigger_for(self, name: str, fallback_to_default=True) -> "Trigger[Evaluated]":
+    #     return self.outcome.get_trigger_for(name, fallback_to_default)
 
-    def actions_cascade(self, file_record: FileRecord):
-        if not file_record.match:
-            return file_record
+    # def get_default_for(self, name: str) -> "Trigger[Evaluated]":
+    #     return self.outcome.get_default_for(name)
 
-        match_action = self.get_action_for("match")
-        if match_action is None:
-            return file_record
-
-        if not self.rule.is_matching_rule(file_record):
-            return file_record
-
-        file_record.used_rule += self.rule.name + " "
-
-        self.get_action_function_for("match", default="abort")(file_record, "match")
-
-        if not file_record.destination_file.is_dataset_type_valid:
-            self.get_action_function_for("invalid_alf_format", default="abort")(
-                file_record, "invalid_alf_format"
-            )
-
-        return file_record
-
-    def actions_to_dict(self) -> dict:
-        return {action.trigger: action.method_name for action in self.actions}
-
-    def __str__(self):
-        spacer = "\n    -  "
-        triggers_str = spacer + spacer.join(
-            [str(key) + " : " + str(value) for key, value in self.actions_to_dict().items()]
-        )
-        rename_action = self.get_action_for("rename")
-        rename_arguments = rename_action.arguments if rename_action else {}
-        rename_rule = spacer.join(
-            [str(key) + " : " + str(value) for key, value in rename_arguments.items()]
-        )
-        if rename_rule:
-            rename_rule = "\n    Rename Rule :" + spacer + rename_rule
-        override_rule = spacer.join(self.rule.overrides)
-        if override_rule:
-            override_rule = "\n    Overrides :" + spacer + override_rule
-        return f"    Actions triggers :{triggers_str}{rename_rule}{override_rule}"
+    def apply(self, evaluated: Evaluated, evaluated_list: EvaluatedList, **kwargs) -> "Evaluated":
+        for action in self.actions.values():
+            evaluated = action.apply(evaluated, evaluated_list, **kwargs)
+        return evaluated
 
 
 @dataclass
-class Action:
-    trigger: str
-    method_name: str
-    arguments: dict = field(default_factory=dict)
+class Action(Generic[Evaluated]):
+    name: str
+    arguments: dict[str, Any] = field(default_factory=dict)
 
-    @classmethod
-    def parse_from_dict(cls, trigger: str, dico: dict | str) -> "Action":
-        if isinstance(dico, dict):
-            method_name = next(iter(dico.keys()))
-            arguments = dico[method_name]
-        else:
-            method_name = dico
-            arguments = {}
-        return cls(trigger, method_name, arguments)
+    # attribute types for type checking, not available in __init__
+    method: ActionFunction = field(init=False)
+    trigger: "Trigger[Evaluated]" = field(init=False)
 
     def __post_init__(self):
-        self.method = getattr(self, self.method_name)
+        self.method = getattr(self, self.name)
 
-        if self.method_name == "rename":
+    def _finalize(self):
+        # generalize this (or move a part in file implementation)
+        # and to _finalize
+        if self.name == "rename":
             # self.rename_rule: dict[ElementNames, str | dict] = rule_dict.get("rename", {})
             for key, value in self.arguments.items():
                 if isinstance(value, dict):
                     pattern_name = value.get("pattern", None)
-                    if pattern_name and pattern_name not in self.rule.patterns.keys():
+                    if (
+                        pattern_name
+                        and pattern_name not in self.validator.options.re_patterns.keys()
+                    ):
                         raise KeyError(
                             f"Pattern {pattern_name} was specified in rename action of rule : {self.rule.name} but that "
                             "pattern was not defined in re_patterns."
@@ -168,131 +207,60 @@ class Action:
                         " a constant string or a dictionnary. See documentation for more details."
                     )
 
-    def bind_to(self, actions: Actions) -> "Action":
-        self.actions = actions
-        self.rule = actions.rule
+    def bind_to(self, trigger: "Trigger[Evaluated]") -> "Action":
+        self.trigger = trigger
         return self
 
-    def rename_element(
-        self, file_record: FileRecord, element: ElementNames, rule: RenameElementRule
-    ) -> Tuple[str | None, bool]:
-        """Return a renamed element of the source file based on the element name an content.
+    @property
+    def rule(self) -> "Rule":
+        return self.trigger.rule
 
-        Args:
-            file_record (FileRecord): The file to perform renaming on
-            element (str): the elemnt to rename (ocject, attribute, etc.)
-            rule (str | dict): _description_
+    @property
+    def validator(self) -> "Validator":
+        return self.rule.validator
 
-        Raises:
-            ValueError: _description_
+    # def get_trigger_for(self, trigger_name: str, fallback_to_default=True) -> "Trigger":
+    #     return self.trigger.outcome.get_trigger_for(trigger_name, fallback_to_default)
 
-        Returns:
-            _type_: _description_
-        """
-        if isinstance(rule, str):  # constant replacement
-            return rule, True
-        # then, it must be a dictionnary with pattern defined
-        pattern_name = rule["pattern"]
-        search_on = rule.get("search_on", "source_path")
-        if search_on == "source_path":
-            searched_string = str(file_record.source_path)
-        elif search_on == "source_filename":
-            searched_string = str(file_record.source_path.name)
-        else:
-            searched_string = file_record.source_file[
-                search_on
-            ]  # TODO make a list check in __init__ for that
+    # def get_default_for(self, trigger_name: str) -> "Trigger":
+    #     return self.trigger.outcome.get_default_for(trigger_name)
 
-        match = self.rule.patterns[pattern_name].search(searched_string)
+    def _get_encapsulated_list_arg(self) -> str | None:
+        if not hasattr(self, "_encapsulated_list_arg"):
+            argspec = getfullargspec(self.method)
+            args = [
+                arg
+                for arg in argspec.args
+                if argspec.annotations.get(arg, None)
+                == self.validator._meta.encapsulation_list_class.__name__
+            ]
+            self._encapsulated_list_arg = args[0] if len(args) == 1 else None
+        return self._encapsulated_list_arg
 
-        # we make objects that we can use in case there is a matching or evaluation error.
-        # action_if_error is a bound method instance of the current class,
-        # that corresponds by name to what the user entered in "rename_error" : "" in rule in the json file.
-        # defaults to the abort method.
-        action_if_error = self.actions.get_action_function_for("rename_error", default="abort")
-        message_error_prefix = f"{element} matching error. Searched on {search_on}, with pattern {pattern_name}, matched {match}."
+    def apply(self, evaluated: Evaluated, evaluated_list: EvaluatedList, **kwargs) -> "Evaluated":
 
-        if eval_string := rule.get("eval", None):
-            try:
-                return eval(eval_string), True
-            # this occurs when there is most likely not match.
-            # Examples : NoneType is not supscriptable if match = None (TypeError)
-            # or match[3] does not exist because match contains only two elements (IndexError)
-            except (IndexError, TypeError) as e:
-                action_if_error(
-                    file_record,
-                    "no_match",
-                    message=message_error_prefix
-                    + f" Error : {e}. No match have been found. Test on https://regex101.com/",
-                )
-                return "", False
+        encapsulated_arg = self._get_encapsulated_list_arg()
+        if encapsulated_arg:
+            kwargs.update({encapsulated_arg: evaluated_list})
+        message = cast(str, kwargs.get("message", ""))
+        try:
+            output = self.method(evaluated, **kwargs)
+            if isinstance(output, tuple):
+                # we extract message from the response's output
+                _, message = cast(tuple[Any, str], output)
+            completed = True
+            traceback = ""
+        except Exception as e:
+            traceback = f"Error : {e} : Traceback : {format_exc()}"
+            completed = False
 
-            # this occurs when there is probably an error with the eval statement of the rule.
-            except Exception as e:
-                action_if_error(
-                    file_record,
-                    "evaluation_string_invalid",
-                    message=message_error_prefix
-                    + f" Error : {e}. Evaluation string is probably invalid.",
-                )
-                return "", False
-        else:  # eval is not specified. We then expect to use the first element of match as rename
-            try:
-                return match[0], True  # ty:ignore[not-subscriptable]
-            # this occurs when there is most likely not match.
-            except (IndexError, TypeError) as e:
-                action_if_error(
-                    file_record,
-                    "no_match_first_element",
-                    message=message_error_prefix
-                    + f" Error : {e}. No match have been found for first element. Test on https://regex101.com/",
-                )
-                return "", False  # we backtrack and don't change the element's value
+        execution_infos: ExecutionInfo = {
+            "trigger": self.trigger.name,
+            "action": self.name,
+            "message": message,
+            "completed": completed,
+            "traceback": traceback,
+        }
 
-    # actions :
-    def rename(self, file_record: FileRecord, source: str, *, message: str = "") -> FileRecord:
-        file_record.rename = True
-        file_record.executed_actions.append(f"{source} -> rename")
-        rename_status = (
-            True  # will be set to false in the for loop after if any element renaming fails
-        )
-        for element, rule in self.arguments.items():
-            file_record.destination_file[element], element_status = self.rename_element(
-                file_record, element, rule
-            )
-            rename_status = rename_status and element_status
-
-        if not rename_status:  # if we got a rename_error above, we skip the next steps
-            return file_record
-
-        if file_record.destination_file.fullpath == file_record.source_path:
-            file_record.rename = False
-            self.actions.get_action_function_for("rename_unchanged", default="include")(
-                file_record, "rename_unchanged"
-            )
-        else:
-            self.actions.get_action_function_for("rename_successfull", default="include")(
-                file_record, "rename_successfull"
-            )
-
-        return file_record
-
-    def exclude(self, file_record: FileRecord, source: str, *, message: str = "") -> FileRecord:
-        file_record.include = False
-        file_record.executed_actions.append(f"{source} -> exclude")
-        return file_record
-
-    def include(self, file_record: FileRecord, source: str, *, message: str = "") -> FileRecord:
-        file_record.include = True
-        file_record.executed_actions.append(f"{source} -> include")
-        return file_record
-
-    def delete(self, file_record: FileRecord, source: str, *, message: str = "") -> FileRecord:
-        file_record.delete = True
-        file_record.executed_actions.append(f"{source} -> delete")
-        return file_record
-
-    def abort(self, file_record: FileRecord, source: str, *, message: str = "") -> FileRecord:
-        file_record.abort.append(message)
-        file_record.executed_actions.append(f"{source} -> abort")
-        return file_record
+        evaluated.executed_triggers.setdefault(self.trigger.name, []).append(execution_infos)
+        return evaluated
