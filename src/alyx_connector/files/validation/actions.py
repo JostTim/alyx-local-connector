@@ -36,13 +36,8 @@ class Outcome(Generic[Evaluated]):
                 "Set on : match to null if you wish to keep the rule but make it inactive."
             )
 
-        allowed_triggers = [
-            "match",
-            "destination_exists",
-            "rename_unchanged",
-            "rename_error",
-            "rename_successfull",
-        ]
+        allowed_triggers = set(self.validator._meta.trigger_class.defaults.keys())
+        allowed_triggers.add("match")
 
         for trigger_name in self.triggers.keys():
             if trigger_name not in allowed_triggers:

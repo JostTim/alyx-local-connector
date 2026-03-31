@@ -1,13 +1,13 @@
-from pathlib import Path
 import json
-from json import JSONDecodeError
 from enum import Enum
-from rich.prompt import Prompt, Confirm
+from json import JSONDecodeError
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional
+
+from rich.prompt import Confirm, Prompt
 
 from ..web.urls import UrlValidator
 from .directories import RequestsCache
-
-from typing import Optional, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .core import Configuration

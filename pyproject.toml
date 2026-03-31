@@ -80,14 +80,14 @@ exclude = [
     "dist",
 ]
 ignore = ["W504", "W503", "E266"]
-max-line-length = 99
+max-line-length = 80
 
 [tool.ty.src]
 include = ["src"]
 exclude = [".venv", "venv", "dist", "build", "**/__pycache__"]
 
 [tool.ruff]
-line-length = 99
+line-length = 80
 
 [tool.ruff.lint]
 ignore = []

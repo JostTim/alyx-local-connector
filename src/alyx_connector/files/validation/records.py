@@ -16,13 +16,12 @@ class Encapsulation(Generic[EncapsulatedObject]):
 
     # attributes for type checking
     lookup_attrs_on: str = field(default="original_object", init=False)
-    match: bool = field(default=False, init=False)
     matching_rules: set[str] = field(default_factory=set, init=False)
     selected_rule: str | None = field(default=None, init=False)
     planned_triggers: set[str] = field(default_factory=set, init=False)
     planned_triggers_args: dict[str, Any] = field(default_factory=dict, init=False)
     executed_triggers: dict[str, list[ExecutionInfo]] = field(default_factory=dict, init=False)
-
+    frozen: bool = field(default=False, init=False)
     # def apply(self, validator: "Validator"):
     #     for rule in validator.rules.values():
     #         rule.apply(self)
@@ -30,14 +29,21 @@ class Encapsulation(Generic[EncapsulatedObject]):
     # def evaluate(self, validator: "Validator"):
     #     for rule in validator.rules.values():
     #         rule.evaluate(self)
+
+    @property
+    def match(self) -> bool:
+        return bool(self.matching_rules)
+
     def add_matched_rule(self, rule_name: str):
         self.matching_rules.add(rule_name)
         self.add_trigger("match")
-        self.match = True
 
-    def add_trigger(self, trigger: str, **kwargs):
-        self.planned_triggers.add(trigger)
-        cast(dict, self.planned_triggers_args.setdefault(trigger, {})).update(**kwargs)
+    def add_trigger(self: "Evaluated", trigger: str | list[str], **kwargs) -> "Evaluated":
+        triggers = trigger if not isinstance(trigger, list) else trigger
+        for trigger in triggers:
+            self.planned_triggers.add(trigger)
+            cast(dict, self.planned_triggers_args.setdefault(trigger, {})).update(**kwargs)
+        return self
 
     @property
     def looked_up_object(self) -> Any:
@@ -78,6 +84,28 @@ class Encapsulation(Generic[EncapsulatedObject]):
     def executed_triggers_to_dataframe(self) -> DataFrame:
         return DataFrame([item for key, value in self.executed_triggers.items() for item in value])
 
+    def set_result(self, result: Any, frozen: bool = True):
+        if self.frozen == True:
+            raise ValueError(
+                "Cannot set again the result if frozen is set tu true."
+                "This is a safeguard, it means the code doesn't behave "
+                "as you expected and result is trying to be set several times."
+            )
+        self.result = result
+        self.frozen = True
+
+    def __hash__(self) -> int:
+        if not hasattr(self, "_hash"):
+            self._hash = hash(str(self.original_object))
+        # same input (original_object) should behave exaclut identically,
+        # follow same rules and getsame output and henceforth, give the
+        # same hash. It should thus also be impossible to have twice the
+        # same Encapsulation object inside an EncapsulationList.
+        return self._hash
+
+    def __eq__(self, other: "Evaluated") -> bool:
+        return self.__hash__() == other.__hash__()
+
 
 @dataclass
 class EncapsulationList(Generic[Evaluated]):
@@ -88,6 +116,9 @@ class EncapsulationList(Generic[Evaluated]):
     @classmethod
     def from_iterable(cls, iterable: Iterable):
         return cls([cls.encapsulation_class(item) for item in iterable])
+
+    def __post_init__(self):
+        self.elements = list(set(self.elements))
 
     # def apply(self, validator: "Validator"):
     #     for element in self.elements:

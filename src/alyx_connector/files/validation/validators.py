@@ -141,4 +141,6 @@ class Validator(Generic[Evaluated]):
         for evaluated in evaluated_list:
             for rule in self.rules.values():
                 rule.evaluate(evaluated)
+            if not evaluated.match:
+                evaluated.add_matched_rule("__default_rule__")
             self.rules.resolve_selected_rule(evaluated)

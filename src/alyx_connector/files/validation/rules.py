@@ -2,7 +2,17 @@ from _collections_abc import dict_keys
 from dataclasses import dataclass, field
 from functools import reduce
 from re import Pattern
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, Iterator, Literal, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    ClassVar,
+    Generic,
+    Iterable,
+    Iterator,
+    Literal,
+    cast,
+)
 
 from .actions import Outcome
 from .exceptions import ParsingError
@@ -41,6 +51,12 @@ class Rules(Generic[Evaluated]):
         except KeyError:
             raise KeyError(f"No rule {name} found")
 
+    def add_rule(self, rule: "Rule", errors: Literal["ignore", "raise"] = "raise"):
+        if rule.name not in self.keys():
+            self.rules[rule.name] = rule
+        elif errors == "raise":
+            raise ValueError(f"Rule {rule.name} was present in the rules already. Cannot add it.")
+
     def values(self) -> "Iterator[Rule]":
         for rule in self.rules.values():
             yield rule
@@ -55,6 +71,18 @@ class Rules(Generic[Evaluated]):
     def _finalize(self):
         for rule in self.rules.values():
             rule._finalize()
+
+    def create_default_rule(self):
+        classes = self.validator._meta
+        # This class will never match anything (returns False systematically)
+        # To make it match something, you can manually make an evaluated object
+        # add it's name to matched rules, then call resolve_selected_rules on it.
+        default_rule = classes.rule_class(
+            "__default_rule__",
+            classes.condition_class(),
+            classes.outcome_class({}),
+        ).bind_to(self)
+        self.add_rule(default_rule, errors="ignore")
 
     def resolve_selected_rule(self, evaluated: Evaluated) -> Evaluated:
         matching_rules = evaluated.matching_rules
@@ -246,6 +274,8 @@ class Condition:
     inverted: bool = field(default=False)
     depth: int = field(default=0)
 
+    reduction_method: Callable[[Iterable[Any]], bool] = field(init=False)
+
     @classmethod
     def parse_from_dict(
         cls,
@@ -316,7 +346,13 @@ class Condition:
         for expression in self.expressions:
             boolean_return = expression.evaluate(evaluated)
             evaluations.append(boolean_return)
-        boolean_return = self.reduction_method(evaluations)
+        # if evaluations is an empty list (no sub conditions nor expression in
+        # current expression) then this should return False
+        # (and all([]) returns True, so we check length of evaluations first)
+        if not len(evaluations):
+            boolean_return = False
+        else:
+            boolean_return = self.reduction_method(evaluations)
 
         boolean_return = not boolean_return if self.inverted else boolean_return
         return boolean_return

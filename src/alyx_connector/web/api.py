@@ -1,31 +1,29 @@
 import json
 import re
-import requests
-
-from openapi_parser.specification import Operation, Parameter
-
-from requests.models import Response
-from urllib.parse import urlencode, quote
-from logging import getLogger
-from pandas import DataFrame, Series
-from tqdm import tqdm
-from sys import stdout
-from warnings import warn
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-from .urls import UrlValidator
-
+from logging import getLogger
+from sys import stdout
 from typing import (
     TYPE_CHECKING,
     Any,
-    Tuple,
     List,
     Optional,
     Protocol,
+    Tuple,
     TypeAlias,
     cast,
     overload,
 )
+from urllib.parse import quote, urlencode
+from warnings import warn
+
+import requests
+from openapi_parser.specification import Operation, Parameter
+from pandas import DataFrame, Series
+from requests.models import Response
+from tqdm import tqdm
+
+from .urls import UrlValidator
 
 if TYPE_CHECKING:
     from .clients import WebClient
@@ -91,12 +89,16 @@ class EndpointUrl(str):
         Returns:
             _type_: _description_
         """
-        query_dict, requirements_dict = self.separate_query_and_requirements(**kwargs)
+        query_dict, requirements_dict = self.separate_query_and_requirements(
+            **kwargs
+        )
         url = UrlValidator.urlunparse(
             protocol=self.client.protocol,  # http or https
             netloc=self.client.netloc,  # netloc = host+port
             path=self.finalized_path(**requirements_dict),  # path
-            query_string=urlencode(query_dict),  # querystring example : ?thing=truc
+            query_string=urlencode(
+                query_dict
+            ),  # querystring example : ?thing=truc
             fragment=fragment,  # basically an anchor, fragment example : #title1
         )
         return url
@@ -104,7 +106,9 @@ class EndpointUrl(str):
     def finalized_path(self, **requirements_dict):
         path = str(self)
         for requirement in self.requirements:
-            if (requirement_value := requirements_dict.get(requirement)) is None:
+            if (
+                requirement_value := requirements_dict.get(requirement)
+            ) is None:
                 raise ValueError(
                     f"You must provide a {requirement} keyword argument with the path {self}"
                 )
@@ -120,8 +124,12 @@ class EndpointUrl(str):
         Returns:
             Tuple[dict, dict]: dictionnary of query arguments, dictionnary of path required elements
         """
-        requirements = {k: v for k, v in kwargs.items() if k in self.requirements}
-        query_dict = {k: v for k, v in kwargs.items() if k not in self.requirements}
+        requirements = {
+            k: v for k, v in kwargs.items() if k in self.requirements
+        }
+        query_dict = {
+            k: v for k, v in kwargs.items() if k not in self.requirements
+        }
         return query_dict, requirements
 
     @property
@@ -154,7 +162,9 @@ class Endpoint:
         (several routes for an identical action can exist).
         """
         search_path = self.path
-        pattern_string = rf"^(?:{search_path}|[\w/-]+{search_path})(?:(?=/{{).*)?$"
+        pattern_string = (
+            rf"^(?:{search_path}|[\w/-]+{search_path})(?:(?=/{{).*)?$"
+        )
         pattern = re.compile(pattern_string)
         return [
             EndpointUrl(key, self.client)
@@ -201,10 +211,6 @@ class Endpoint:
 
 
 class Operateur:
-    ACTIONS = ["list", "create", "update", "partial_update", "retrieve", "destroy"]
-    ACTIONS_PATTERN = re.compile(
-        f"(?P<endpoint>.+?)_(?P<action>{'|'.join(ACTIONS)})(?:_by_(?P<by>.*))?"
-    )
     ACTIONS_TO_METHODS_MAP = {
         "list": "get",
         "retrieve": "get",
@@ -213,8 +219,21 @@ class Operateur:
         "update": "put",
         "partial_update": "patch",
     }
+    ACTIONS_PATTERN = re.compile(
+        f"(?P<endpoint>.+?)_(?P<action>{'|'.join(ACTIONS_TO_METHODS_MAP.keys())})(?:_by_(?P<by>.*))?"
+    )
+    # ACTIONS = [
+    #     "list",
+    #     "create",
+    #     "update",
+    #     "partial_update",
+    #     "retrieve",
+    #     "destroy",
+    # ]
 
-    def __init__(self, path: EndpointUrl, client: "WebClient", operation: Operation):
+    def __init__(
+        self, path: EndpointUrl, client: "WebClient", operation: Operation
+    ):
         self.path = path
         self.client = client
         self.operation = operation
@@ -240,7 +259,10 @@ class Operateur:
         return {k: v if v else "" for k, v in result.items()}
 
     def _verify_name_to_method_match(self) -> bool:
-        return self.ACTIONS_TO_METHODS_MAP[self.action_name] == self.rest_operation_name
+        return (
+            self.ACTIONS_TO_METHODS_MAP[self.action_name]
+            == self.rest_operation_name
+        )
 
     @property
     def rest_operation_name(self) -> str:
@@ -254,7 +276,9 @@ class Operateur:
         try:
             return self.path.make_url(**kwargs)
         except ValueError as e:
-            raise ValueError(f"For the {self.action_name} action, " + str(e)) from e
+            raise ValueError(
+                f"For the {self.action_name} action, " + str(e)
+            ) from e
 
     @property
     def parameters(self):
@@ -345,7 +369,9 @@ class MultiOperateur(Operateur):
         return tuple([op.required_parameters[0] for op in self.operateurs])
 
     def verify_required_args_present(self, raises=False, **kwargs):
-        selected_operateur, valid = self.get_selected_operator_from_kwargs(**kwargs)
+        selected_operateur, valid = self.get_selected_operator_from_kwargs(
+            **kwargs
+        )
         number_valid = len([v for v in valid if v])
         if selected_operateur is None:
             if not raises:
@@ -356,7 +382,9 @@ class MultiOperateur(Operateur):
                 f"{self.action_name} action on {self.path}"
             )
         if number_valid > 1:
-            matching_operateurs = [op for v, op in zip(valid, self.operateurs) if v]
+            matching_operateurs = [
+                op for v, op in zip(valid, self.operateurs) if v
+            ]
             warn(
                 f"Several required parameters needed by the operators are present, for {self.action_name} "
                 f"the first matching, {selected_operateur.path} will be used. Found matching : "
@@ -466,7 +494,9 @@ class Request:
             files=files if files is not None else self.files,
             timeout=timeout if timeout is not None else self.timeout,
             details=details if details is not None else self.details,
-            unpaginate=unpaginate if unpaginate is not None else self.unpaginate,
+            unpaginate=unpaginate
+            if unpaginate is not None
+            else self.unpaginate,
             **arguments,
         )
 
@@ -500,7 +530,9 @@ class Request:
         data = self.get_input_data()
         files = self.get_files()
         # TODO need to obfuscate token if ther is any, in here (headers={'Authorization': 'Token 3dd2****'})
-        logger.debug(f"Sending a request with url={self.url}, headers={self.headers}")
+        logger.debug(
+            f"Sending a request with url={self.url}, headers={self.headers}"
+        )
         r = self.request_method(
             self.url,
             stream=True,
@@ -546,7 +578,9 @@ class Request:
             message.pop(
                 "status_code", None
             )  # Get status code from response object instead
-            message = message.get("detail") or message  # Get details if available
+            message = (
+                message.get("detail") or message
+            )  # Get details if available
         except json.decoder.JSONDecodeError:
             message = response.text
 
@@ -556,7 +590,7 @@ class Request:
                 "please use Connector(auto_authenticate=True) "
                 "to re-enter the password and obtain a new valid token."
             )
-            self.client.logout()  # ty:ignore[unresolved-attribute]
+            self.client.authenticator.logout()
 
         raise requests.HTTPError(
             response.status_code, self.url, message, response=response
@@ -602,7 +636,9 @@ class ResponseData:
         self._raw_json = json.loads(self.request.response.text)
         return self._raw_json
 
-    def process_json(self) -> ResponseDataEntry | ResponseListofDataEntries | None:
+    def process_json(
+        self,
+    ) -> ResponseDataEntry | ResponseListofDataEntries | None:
 
         if self.raw_json is None:
             return None
@@ -739,13 +775,17 @@ class ResponseData:
                 data_entry, operateur=retrieve_operateur
             )
 
-        retrieve_params = {name: data_entry[name] for name in required_parameter_names}
+        retrieve_params = {
+            name: data_entry[name] for name in required_parameter_names
+        }
         request = self.request.copy(
             operateur=retrieve_operateur,
             use_original_url_arguments=False,
             **retrieve_params,
         )
-        recieved_data = cast(None | dict | list, request.handle().output_data.json)
+        recieved_data = cast(
+            None | dict | list, request.handle().output_data.json
+        )
         if recieved_data is None:
             raise ValueError(
                 f"Error getting details for {self.request.operateur.path.endpoint.path}"
@@ -815,7 +855,8 @@ def recursively_pandify_items(
 
 
 def recursively_pandify_items(
-    data_entries: ResponseDataEntry | ResponseListofDataEntries, top: bool = False
+    data_entries: ResponseDataEntry | ResponseListofDataEntries,
+    top: bool = False,
 ) -> DataFrame | Series:
     data_entries = data_entries.copy()
     if isinstance(data_entries, list):
@@ -835,7 +876,9 @@ def recursively_pandify_items(
                 continue
 
             try:
-                pandified_column = table[column].apply(recursively_pandify_items)
+                pandified_column = table[column].apply(
+                    recursively_pandify_items
+                )
             except Exception as e:
                 logger.debug(
                     f"Error pandifying column {column}. Skipping. {type(e)} - {e}"
@@ -869,11 +912,14 @@ def recursively_pandify_items(
             series_name = None
         return Series(data_entries, name=series_name)
     else:
-        raise NotImplementedError(f"Type was not list or dict : {type(data_entries)}")
+        raise NotImplementedError(
+            f"Type was not list or dict : {type(data_entries)}"
+        )
 
 
 def select_matching_required_parameters(
-    data_entries: ResponseDataEntry | ResponseListofDataEntries, operateur: Operateur
+    data_entries: ResponseDataEntry | ResponseListofDataEntries,
+    operateur: Operateur,
 ):
 
     if isinstance(data_entries, list):
@@ -887,7 +933,9 @@ def select_matching_required_parameters(
     else:
         raise TypeError("Expected list or dict")
 
-    data_entry = data_entries[0] if isinstance(data_entries, list) else data_entries
+    data_entry = (
+        data_entries[0] if isinstance(data_entries, list) else data_entries
+    )
 
     for parameter_combination in operateur.required_parameters:
         if all(

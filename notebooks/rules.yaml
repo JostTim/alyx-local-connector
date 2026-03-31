@@ -5,7 +5,7 @@ re_patterns:
   TDMS_VIDEO_TRIAL_NO: ".*?(\\d+)\\.tdms$"
   FOV_NO: "^.*(?:(?:FOV)|(?:fieldOfView))[-_ \\.]*?(\\d+).*$"
   CONDENSED_DATE: ".*?(20\\d{4,6}).*?"
-  SESSION_NO: ".*?20\\d{4,6}_(\\d).*?"
+  SESSION_NO: ".*?2c vv0\\d{4,6}_(\\d).*?"
   ALYX_PATH_EID: "\\w+(?:\\|\/)\\d{4}\\-\\d{2}\\-\\d{2}(?:\\|\/)\\d{3}"
   IOI_WHISKER: "^([a-zA-Z0-9]+)"
   IOI_WITH_VERSIONS: "^(?:stim.*?_)?([a-zA-Z0-9]+)(?:(?:_|.)((?:[vV]\\d+)|(?:crash)))?(?:stim)?.*$"

@@ -1,12 +1,12 @@
 from pathlib import Path
+from typing import Optional
+
 from rich.prompt import Prompt
 from rich.text import Text
 
 from ..utils.types import Singleton
+from .dicts import ConfigIndex, ServerConfig, UserConfig
 from .directories import Directory, RequestsCache
-from .dicts import ConfigIndex, UserConfig, ServerConfig
-
-from typing import Optional
 
 
 class Configuration(Directory, metaclass=Singleton):
