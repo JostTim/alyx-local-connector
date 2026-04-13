@@ -49,16 +49,10 @@ variable = "__version__"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/alyx_connector"]
-include = [
-  "src/alyx_connector/py.typed",
-  "src/alyx_connector/**/*.pyi",
-]
+include = ["src/alyx_connector/py.typed", "src/alyx_connector/**/*.pyi"]
 
 [tool.hatch.build.targets.sdist]
-include = [
-  "src/alyx_connector/py.typed",
-  "src/alyx_connector/**/*.pyi",
-]
+include = ["src/alyx_connector/py.typed", "src/alyx_connector/**/*.pyi"]
 
 [tool.pytest.ini_options]
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb --cov-report xml --cov=alyx_connector --junitxml=pytest_results.xml"

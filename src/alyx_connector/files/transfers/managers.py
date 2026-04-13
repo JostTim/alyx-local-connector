@@ -28,7 +28,7 @@ class Policies(TypedDict, total=False):
 
 
 class FileTransferManager:
-    results: DataFrame
+
     direction: str
     sessions: DataFrame
 
@@ -44,7 +44,7 @@ class FileTransferManager:
     def __init__(
         self,
         sessions: DataFrame,
-        results: Optional[DataFrame] = None,
+        # results: Optional[DataFrame] = None,
         direction: Literal["push", "pull", None] = None,
     ):
 
@@ -52,22 +52,51 @@ class FileTransferManager:
             sessions = sessions.to_frame().transpose()
 
         self.sessions = sessions
-        self.results = results  # type: ignore
+        # self.results = results
         self.direction = direction  # type: ignore
 
     @property
-    def source_location(self) -> Literal["remote_path", "local_path"] :
+    def source(self) -> Literal["remote_path", "local_path"] :
         return "remote_path" if self.direction == "pull" else "local_path"
 
     @property
-    def destination_location(self) -> Literal["remote_path", "local_path"] :
+    def destination(self) -> Literal["remote_path", "local_path"] :
         return "local_path" if self.direction == "pull" else "remote_path"
 
+    # @staticmethod
+    # def from_transfer(transfer) -> "FileTransferManager":
+    #     return FileTransferManager(
+    #         transfer.sessions, transfer.results, transfer.direction
+    #     )
+
     @staticmethod
-    def from_transfer(transfer) -> "FileTransferManager":
-        return FileTransferManager(
-            transfer.sessions, transfer.results, transfer.direction
+    def push_request(
+        sessions: DataFrame, policies: Optional[Policies] = None, show_status=True
+    ) -> "FileTransferManager":
+        
+        manager = FileTransferManager(
+            sessions, direction="push"
         )
+        results = manager.check_files(
+            policies=policies
+        )
+        if show_status:
+            new_file_namager.status()
+        return new_file_namager
+
+    @staticmethod
+    def pull_request(
+        sessions: DataFrame, policies: Optional[Policies] = None, show_status=True
+    ) -> "FileTransferManager":
+        results = self.check_files(
+            source="remote_path", destination="local_path", policies=policies
+        )
+        new_file_namager = FileTransferManager(
+            self.sessions, results, direction="pull"
+        )
+        if show_status:
+            new_file_namager.status()
+        return new_file_namager
 
     def _assert_file_checked(self, function_name) -> None:
         if self.results is None or self.direction is None:
@@ -552,39 +581,12 @@ class FileTransferManager:
                     )
         return DataFrame(copy_results)
 
-    
-    def push_request(
-        self, policies: Optional[Policies] = None, show_status=True
-    ) -> "FileTransferManager":
-        results = self.check_files(
-            source="local_path", destination="remote_path", policies=policies
-        )
-        new_file_namager = FileTransferManager(
-            self.sessions, results, direction="push"
-        )
-        if show_status:
-            new_file_namager.status()
-        return new_file_namager
-
-    def pull_request(
-        self, policies: Optional[Policies] = None, show_status=True
-    ) -> "FileTransferManager":
-        results = self.check_files(
-            source="remote_path", destination="local_path", policies=policies
-        )
-        new_file_namager = FileTransferManager(
-            self.sessions, results, direction="pull"
-        )
-        if show_status:
-            new_file_namager.status()
-        return new_file_namager
-
     def check_files(
         self,
-        source="remote_path",
-        destination="local_path",
+        # source="remote_path",
+        # destination="local_path",
         policies: Optional[Policies] = None,
-    ) -> DataFrame:
+    ) -> "FileTransferExecutor":
 
         console = Console()
 
@@ -609,8 +611,8 @@ class FileTransferManager:
             )
 
             for _, session in self.sessions.iterrows():
-                source_path = Path(str(session[source]))
-                destination_path = Path(str(session[destination]))
+                source_path = Path(str(session[self.source]))
+                destination_path = Path(str(session[self.destination]))
 
                 source_volume = get_volume(source_path, session["rel_path"])
                 destination_volume = get_volume(
@@ -634,7 +636,7 @@ class FileTransferManager:
 
                         source_stat = source_filepath.stat()
 
-                        source_creation_date = source_stat.st_birthtime  # ty:ignore[unresolved-attribute]
+                        source_creation_date = source_stat.st_birthtime
                         source_modification_date = source_stat.st_mtime
 
                         source_date = max(
@@ -645,7 +647,7 @@ class FileTransferManager:
                             destination_stat = destination_filepath.stat()
 
                             destination_creation_date = (
-                                destination_stat.st_birthtime  # ty:ignore[unresolved-attribute]
+                                destination_stat.st_birthtime
                             )
                             destination_modification_date = (
                                 destination_stat.st_mtime
@@ -730,11 +732,17 @@ class FileTransferManager:
                         results.append(record)
                 progress.advance(task)
 
-        return DataFrame(results)
+        return FileTransferExecutor(DataFrame(results), policies)
 
     def _check_session_files(self, session : Series, policies : Policies):
-        source_path = Path(str(session[source]))
-        destination_path = Path(str(session[destination]))
+
+        def get_volume(full_path, rel_path):
+            full_path, rel_path = str(Path(full_path)), str(Path(rel_path))
+            root_path = Path(full_path.replace(rel_path, ""))
+            return Path(root_path.drive)
+
+        source_path = Path(str(session[self.source]))
+        destination_path = Path(str(session[self.destination]))
 
         source_volume = get_volume(source_path, session["rel_path"])
         destination_volume = get_volume(
@@ -758,3 +766,12 @@ class FileTransferManager:
 
     def _check_file(self, source_path:Path, destination_path : Path, policies : Policies):
         
+
+class FileTransferExecutor:
+
+    policies : Policies
+    files: DataFrame
+
+    def __init__(self, files : DataFrame, policies : Policies):
+        self.policies = policies
+        self.files = files
