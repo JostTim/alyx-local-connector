@@ -1,25 +1,21 @@
 # built-ins imports
 import shutil
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Literal, Optional, TypedDict, overload
+
+from pandas import DataFrame, Series
 
 # custom imports
 from pint import Quantity
 from rich import print
-from rich.text import Text
-from rich.console import Console, Group
-from rich.progress import Progress, BarColumn, TextColumn
-from rich.panel import Panel
-from rich.padding import Padding
+from rich.console import Console, ConsoleRenderable, Group
 from rich.live import Live
+from rich.padding import Padding
+from rich.panel import Panel
+from rich.progress import BarColumn, Progress, TextColumn
 from rich.prompt import Prompt
-
-from pandas import DataFrame, Series
-
-from typing import Optional
-
-
-from typing import TypedDict, Literal
+from rich.text import Text
 
 
 class Policies(TypedDict, total=False):
@@ -27,16 +23,30 @@ class Policies(TypedDict, total=False):
     destination_older: Literal["conflict", "overwrite", "transfer", "ignore"]
     no_file_exists: Literal["conflict", "overwrite", "transfer", "ignore"]
     destination_younger: Literal["conflict", "overwrite", "transfer", "ignore"]
+    check_identical_files_by: Literal["size", "content"]
     close_dates_threshold: int
 
 
 class FileTransferManager:
-
     results: DataFrame
     direction: str
     sessions: DataFrame
 
-    def __init__(self, sessions: DataFrame, results: Optional[DataFrame] = None, direction: Optional[str] = None):
+    default_policies: Policies = {
+        "close_dates": "conflict",
+        "destination_older": "overwrite",
+        "no_file_exists": "transfer",
+        "destination_younger": "ignore",
+        "close_dates_threshold": 10,
+        "check_identical_files_by": "size",
+    }
+
+    def __init__(
+        self,
+        sessions: DataFrame,
+        results: Optional[DataFrame] = None,
+        direction: Literal["push", "pull", None] = None,
+    ):
 
         if isinstance(sessions, Series):
             sessions = sessions.to_frame().transpose()
@@ -45,18 +55,28 @@ class FileTransferManager:
         self.results = results  # type: ignore
         self.direction = direction  # type: ignore
 
-    @staticmethod
-    def from_transfer(transfer):
-        return FileTransferManager(transfer.sessions, transfer.results, transfer.direction)
+    @property
+    def source_location(self) -> Literal["remote_path", "local_path"] :
+        return "remote_path" if self.direction == "pull" else "local_path"
 
-    def _assert_file_checked(self, function_name):
+    @property
+    def destination_location(self) -> Literal["remote_path", "local_path"] :
+        return "local_path" if self.direction == "pull" else "remote_path"
+
+    @staticmethod
+    def from_transfer(transfer) -> "FileTransferManager":
+        return FileTransferManager(
+            transfer.sessions, transfer.results, transfer.direction
+        )
+
+    def _assert_file_checked(self, function_name) -> None:
         if self.results is None or self.direction is None:
             raise ValueError(
                 f"Cannot show {function_name} if no result has been "
                 "obtained through a fetch or a push_request command"
             )
 
-    def resolve(self):
+    def resolve(self) -> "FileTransferManager":
 
         results = self.results.copy()
         conflicts = results[results["decision"] == "conflict"]
@@ -65,7 +85,9 @@ class FileTransferManager:
         def conflict_pannel(conflict: Optional[Series] = None):
 
             if conflict is None:
-                return Panel("", title="❗ Handling Conflict :", border_style="dark_blue")
+                return Panel(
+                    "", title="❗ Handling Conflict :", border_style="dark_blue"
+                )
 
             line = Text.assemble(
                 ("📄"),
@@ -77,17 +99,25 @@ class FileTransferManager:
                 (f"Type in your decision. (One of {accepted_decisions})"),
             )
 
-            return Panel(line, title="❗ Handling Conflict :", border_style="dark_blue")
+            return Panel(
+                line, title="❗ Handling Conflict :", border_style="dark_blue"
+            )
 
         if len(conflicts):
             console = Console()
-            with Live(conflict_pannel(), console=console, refresh_per_second=5) as live:
-                for index, conflited_file in results[results["decision"] == "conflict"].iterrows():
+            with Live(
+                conflict_pannel(), console=console, refresh_per_second=5
+            ) as live:
+                for index, conflited_file in results[
+                    results["decision"] == "conflict"
+                ].iterrows():
                     live.update(conflict_pannel(conflited_file))
 
                     decision = Prompt.ask(choices=accepted_decisions)
                     if decision not in accepted_decisions:
-                        raise ValueError(f"Must be one of {accepted_decisions}, got {decision}")
+                        raise ValueError(
+                            f"Must be one of {accepted_decisions}, got {decision}"
+                        )
                     else:
                         results.at[index, "decision"] = decision
 
@@ -101,27 +131,56 @@ class FileTransferManager:
                         )
                     )
                 else:
-                    print(Text("All conflicts solved ! 🎉", style="spring_green3 bold"))
+                    print(
+                        Text(
+                            "All conflicts solved ! 🎉",
+                            style="spring_green3 bold",
+                        )
+                    )
 
         else:
-            print(Text("No conflicts to resolve. ✅", style="spring_green3 bold"))
+            print(
+                Text("No conflicts to resolve. ✅", style="spring_green3 bold")
+            )
 
-        return FileTransferManager(self.sessions, results=results, direction=self.direction)
+        return FileTransferManager(
+            self.sessions, results=results, direction=self.direction
+        )
 
-    def status(self, show_message=True, return_messages=False):
+    @overload
+    def status(
+        self, show_message=True, return_messages: Literal[True] = True
+    ) -> list[ConsoleRenderable]: ...
+
+    @overload
+    def status(
+        self, show_message=True, return_messages: Literal[False] = False
+    ) -> bool: ...
+
+    def status(
+        self, show_message=True, return_messages: bool = False
+    ) -> bool | list[ConsoleRenderable]:
         self._assert_file_checked("status")
 
         action = self.direction
 
         is_status_ok = True
-        messages = []
+        messages: list[ConsoleRenderable] = []
 
-        n_ignored_files = len(self.results[self.results["decision"] == "ignore"])
-        n_transfered_files = len(self.results[self.results["decision"] == "transfer"])
-        n_overritten_files = len(self.results[self.results["decision"] == "overwrite"])
+        n_ignored_files = len(
+            self.results[self.results["decision"] == "ignore"]
+        )
+        n_transfered_files = len(
+            self.results[self.results["decision"] == "transfer"]
+        )
+        n_overritten_files = len(
+            self.results[self.results["decision"] == "overwrite"]
+        )
         n_conflicts = len(self.results[self.results["decision"] == "conflict"])
 
-        messages.append(Text("❗ Conflicting files:", style="dark_blue underline bold"))
+        messages.append(
+            Text("❗ Conflicting files:", style="dark_blue underline bold")
+        )
         if n_conflicts:
             is_status_ok = False
             messages.append(
@@ -132,12 +191,24 @@ class FileTransferManager:
                 )
             )
         else:
-            messages.append(Text("\tNo conflicts were found ! 🎉\n", style="bold spring_green3"))
+            messages.append(
+                Text(
+                    "\tNo conflicts were found ! 🎉\n",
+                    style="bold spring_green3",
+                )
+            )
 
         metrics = self.transfer_metrics()
-        messages.append(Text("📈 Transfer metrics:", style="dark_blue underline bold"))
+        messages.append(
+            Text("📈 Transfer metrics:", style="dark_blue underline bold")
+        )
 
-        messages.append(Text(f"\t• {n_transfered_files} files will be newly transfered.", style="spring_green3"))
+        messages.append(
+            Text(
+                f"\t• {n_transfered_files} files will be newly transfered.",
+                style="spring_green3",
+            )
+        )
         messages.append(
             Text(
                 f"\t• {n_overritten_files} files will overwrite the equivalent file in destination.",
@@ -146,7 +217,8 @@ class FileTransferManager:
         )
         messages.append(
             Text(
-                f"\t• {n_ignored_files} files will be ignored " "(not transfered from source to destination).\n",
+                f"\t• {n_ignored_files} files will be ignored "
+                "(not transfered from source to destination).\n",
                 style="dark_orange",
             )
         )
@@ -161,7 +233,6 @@ class FileTransferManager:
         )
 
         for destination, metric in transfer_destinations:
-
             destination = str(destination)
             sources = ", ".join(metric.source.astype(str))
             transfer_space = metric.transfer_space.sum()
@@ -169,7 +240,11 @@ class FileTransferManager:
 
             enough_space = free_space > transfer_space
             color = "spring_green3" if enough_space else "bright_red"
-            summary = "✅ Enough free space ✅" if enough_space else "❌ Not enough space ! ❌"
+            summary = (
+                "✅ Enough free space ✅"
+                if enough_space
+                else "❌ Not enough space ! ❌"
+            )
 
             transfer_space_text = f"{transfer_space.to_compact():.2f~P} "
             free_space_text = f"{free_space.to_compact():.2f~P}"
@@ -197,25 +272,35 @@ class FileTransferManager:
                 (f"{destination}\n", f"{color} reverse"),
             )
 
-            messages.append(Padding(Panel(line, border_style=color), (0, 0, 0, 6)))
+            messages.append(
+                Padding(Panel(line, border_style=color), (0, 0, 0, 6))
+            )
 
             if not enough_space:
                 is_status_ok = False
 
-        messages.append(Text("🌠 Conclusion:", style="dark_blue underline bold"))
+        messages.append(
+            Text("🌠 Conclusion:", style="dark_blue underline bold")
+        )
 
         if is_status_ok:
-            messages.append(Text(f"\t• ✅ Able to {action} the data.", style="spring_green3"))
             messages.append(
                 Text(
-                    f"\t• 📊 In total {metrics.transfer_space.sum().to_compact():.2f~P} of data will be " f"{action}ed",
+                    f"\t• ✅ Able to {action} the data.", style="spring_green3"
+                )
+            )
+            messages.append(
+                Text(
+                    f"\t• 📊 In total {metrics.transfer_space.sum().to_compact():.2f~P} of data will be "
+                    f"{action}ed",
                     style="spring_green3",
                 )
             )
         else:
             messages.append(
                 Text(
-                    f"\t• ❌ Cannot {action} the data. Please sort out the issues mentionned above", style="bright_red"
+                    f"\t• ❌ Cannot {action} the data. Please sort out the issues mentionned above",
+                    style="bright_red",
                 )
             )
 
@@ -234,18 +319,21 @@ class FileTransferManager:
 
         return is_status_ok
 
-    def transfer_metrics(self):
+    def transfer_metrics(self) -> DataFrame:
         self._assert_file_checked("status")
 
         transfers_infos = []
-        for (source, destination), transfers in self.results.groupby(by=["source_volume", "destination_volume"]):
+        for (source, destination), transfers in self.results.groupby(
+            by=["source_volume", "destination_volume"]
+        ):  # ty:ignore[not-iterable]
             free_space = shutil.disk_usage(destination).free * Quantity("bytes")
 
             transfered_files = transfers[transfers["decision"] == "transfer"]
             overwritten_files = transfers[transfers["decision"] == "overwrite"]
 
             transfer_space = (
-                overwritten_files["destination_filesize"] - overwritten_files["source_filesize"]
+                overwritten_files["destination_filesize"]
+                - overwritten_files["source_filesize"]
             ).sum() + transfered_files["source_filesize"].sum()
 
             session_nb = len(transfers.session.unique())
@@ -264,18 +352,22 @@ class FileTransferManager:
 
         return DataFrame(transfers_infos)
 
-    def _source_repositories(self):
+    def _source_repositories(self) -> list[str]:
         return self._repositories("source")
 
-    def _destination_repositories(self):
+    def _destination_repositories(self) -> list[str]:
         return self._repositories("destination")
 
-    def _repositories(self, localisation="source"):
+    def _repositories(
+        self, localisation: Literal["source", "destination"] = "source"
+    ) -> list[str]:
         self._assert_file_checked("sources_directories")
         if localisation not in ["source", "destination"]:
-            raise ValueError("_repositories localisation must be 'source' or 'destination'")
+            raise ValueError(
+                "_repositories localisation must be 'source' or 'destination'"
+            )
 
-        def replace_element(root_path, rel_path):
+        def replace_element(root_path, rel_path) -> str:
             return str(root_path).replace(str(rel_path), " ")
 
         if self.direction == "push":
@@ -289,10 +381,12 @@ class FileTransferManager:
             else:
                 repo_key = "local_path"
 
-        root_paths = self.sessions.apply(lambda row: replace_element(row[repo_key], row["rel_path"]), axis=1)
+        root_paths = self.sessions.apply(
+            lambda row: replace_element(row[repo_key], row["rel_path"]), axis=1
+        )
         return root_paths.unique().tolist()
 
-    def push(self):
+    def push(self) -> DataFrame:
         """Pushes (local) files to the destination (remote) after performing necessary checks.
 
         This method first verifies that the file has been checked and that the
@@ -309,10 +403,12 @@ class FileTransferManager:
         """
         self._assert_file_checked("push")
         if self.direction != "push":
-            raise ValueError("Cannot push files without doing first a prepush check")
+            raise ValueError(
+                "Cannot push files without doing first a prepush check"
+            )
         return self.transfer()
 
-    def pull(self):
+    def pull(self) -> DataFrame:
         """Pulls files from the source (remote) to the destination (local).
 
         This method checks if the file has been verified for pulling. It raises a
@@ -327,10 +423,12 @@ class FileTransferManager:
         """
         self._assert_file_checked("pull")
         if self.direction != "pull":
-            raise ValueError("Cannot pull files without doing first a fetch check")
+            raise ValueError(
+                "Cannot pull files without doing first a fetch check"
+            )
         return self.transfer()
 
-    def transfer(self):
+    def transfer(self) -> DataFrame:
         """Transfers data based on the current status and specified direction. (push or pull)
 
         This method checks the current status of the operation.
@@ -350,18 +448,32 @@ class FileTransferManager:
         """
         status = self.status(show_message=False, return_messages=False)
         if not status:
-            raise ValueError(f"Cannot {self.direction} the data. Please check issues with `.status()`")
+            raise ValueError(
+                f"Cannot {self.direction} the data. Please check issues with `.status()`"
+            )
 
-        transfers = self.results[(self.results["decision"] == "transfer") | (self.results["decision"] == "overwrite")]
+        transfers = self.results[
+            (self.results["decision"] == "transfer")
+            | (self.results["decision"] == "overwrite")
+        ]
         transfer_results = self.copy_files_with_progress(
-            transfers.source_filepath, transfers.destination_filepath, transfers.decision
+            transfers.source_filepath,
+            transfers.destination_filepath,
+            transfers.decision,
         )
         # TODO : write a message here if transfer errors, using the transfer_results.success column
-        print(Text(f"🎉 Finished {self.direction}ing successfully ! 🎉", style="spring_green3"))
+        print(
+            Text(
+                f"🎉 Finished {self.direction}ing successfully ! 🎉",
+                style="spring_green3",
+            )
+        )
         return transfer_results
 
     @staticmethod
-    def copy_files_with_progress(src_paths, dst_paths, decisions, max_workers=4):
+    def copy_files_with_progress(
+        src_paths, dst_paths, decisions, max_workers=4
+    ) -> DataFrame:
         """Copies files from source paths to destination paths with progress tracking, with optional multithreading.
 
         Args:
@@ -431,42 +543,52 @@ class FileTransferManager:
                 for future in as_completed(futures):
                     src, dst, success, message = future.result()
                     copy_results.append(
-                        dict(source_filepath=src, destination_filepath=dst, success=success, message=message)
+                        dict(
+                            source_filepath=src,
+                            destination_filepath=dst,
+                            success=success,
+                            message=message,
+                        )
                     )
         return DataFrame(copy_results)
 
-    def fetch(self, policies: Optional[Policies] = None, show_status=True):
-        results = self.check_files(source="remote_path", destination="local_path", policies=policies)
-        new_file_namager = FileTransferManager(self.sessions, results, direction="pull")
+    
+    def push_request(
+        self, policies: Optional[Policies] = None, show_status=True
+    ) -> "FileTransferManager":
+        results = self.check_files(
+            source="local_path", destination="remote_path", policies=policies
+        )
+        new_file_namager = FileTransferManager(
+            self.sessions, results, direction="push"
+        )
         if show_status:
             new_file_namager.status()
         return new_file_namager
 
-    def push_request(self, policies: Optional[Policies] = None, show_status=True):
-        results = self.check_files(source="local_path", destination="remote_path", policies=policies)
-        new_file_namager = FileTransferManager(self.sessions, results, direction="push")
+    def pull_request(
+        self, policies: Optional[Policies] = None, show_status=True
+    ) -> "FileTransferManager":
+        results = self.check_files(
+            source="remote_path", destination="local_path", policies=policies
+        )
+        new_file_namager = FileTransferManager(
+            self.sessions, results, direction="pull"
+        )
         if show_status:
             new_file_namager.status()
         return new_file_namager
 
-    def pull_request(self, policies: Optional[Policies] = None, show_status=True):
-        results = self.check_files(source="remote_path", destination="local_path", policies=policies)
-        new_file_namager = FileTransferManager(self.sessions, results, direction="push")
-        if show_status:
-            new_file_namager.status()
-        return new_file_namager
-
-    def check_files(self, source="remote_path", destination="local_path", policies: Optional[Policies] = None):
+    def check_files(
+        self,
+        source="remote_path",
+        destination="local_path",
+        policies: Optional[Policies] = None,
+    ) -> DataFrame:
 
         console = Console()
 
-        default_policies: Policies = {
-            "close_dates": "conflict",
-            "destination_older": "overwrite",
-            "no_file_exists": "transfer",
-            "destination_younger": "ignore",
-            "close_dates_threshold": 10,
-        }
+        default_policies = self.default_policies.copy()
 
         if policies is not None:
             default_policies.update(policies)
@@ -481,47 +603,68 @@ class FileTransferManager:
         results = []
 
         with Progress(console=console) as progress:
-
-            task = progress.add_task(f"Checking files for {len(self.sessions)} sessions", total=len(self.sessions))
+            task = progress.add_task(
+                f"Checking files for {len(self.sessions)} sessions",
+                total=len(self.sessions),
+            )
 
             for _, session in self.sessions.iterrows():
-
                 source_path = Path(str(session[source]))
                 destination_path = Path(str(session[destination]))
 
                 source_volume = get_volume(source_path, session["rel_path"])
-                destination_volume = get_volume(destination_path, session["rel_path"])
+                destination_volume = get_volume(
+                    destination_path, session["rel_path"]
+                )
 
-                for root, dirs, files in source_path.walk():
-
+                for root, _, files in source_path.walk():
                     for file in files:
-
                         source_filepath = root / file
-                        source_filesize = source_filepath.stat().st_size * Quantity("bytes")
-                        relative_filepath = source_filepath.relative_to(source_path)
-                        destination_filepath = destination_path / relative_filepath
+                        source_filesize = (
+                            source_filepath.stat().st_size * Quantity("bytes")
+                        )
+                        relative_filepath = source_filepath.relative_to(
+                            source_path
+                        )
+                        destination_filepath = (
+                            destination_path / relative_filepath
+                        )
 
                         destination_exists = destination_filepath.exists()
 
                         source_stat = source_filepath.stat()
 
-                        source_creation_date = source_stat.st_birthtime
+                        source_creation_date = source_stat.st_birthtime  # ty:ignore[unresolved-attribute]
                         source_modification_date = source_stat.st_mtime
 
-                        source_date = max(source_creation_date, source_modification_date)
+                        source_date = max(
+                            source_creation_date, source_modification_date
+                        )
 
                         if destination_exists:
-
                             destination_stat = destination_filepath.stat()
 
-                            destination_creation_date = destination_stat.st_birthtime
-                            destination_modification_date = destination_stat.st_mtime
+                            destination_creation_date = (
+                                destination_stat.st_birthtime  # ty:ignore[unresolved-attribute]
+                            )
+                            destination_modification_date = (
+                                destination_stat.st_mtime
+                            )
 
-                            destination_filesize = destination_stat.st_size * Quantity("bytes")
+                            destination_filesize = (
+                                destination_stat.st_size * Quantity("bytes")
+                            )
 
-                            destination_date = max(destination_creation_date, destination_modification_date)
+                            destination_date = max(
+                                destination_creation_date,
+                                destination_modification_date,
+                            )
 
-                            if (difference := abs(source_date - destination_date)) < policies["close_dates_threshold"]:
+                            if (
+                                difference := abs(
+                                    source_date - destination_date
+                                )
+                            ) < policies["close_dates_threshold"]:
                                 decision = policies["close_dates"]
                                 warnings = (
                                     f"The destination file and the source file last modification dates "
@@ -537,9 +680,30 @@ class FileTransferManager:
                                 )
 
                             else:
-                                decision = policies["destination_older"]
-                                warnings = "The destination file is older than source. "
-                                "Transfering will most likely be okay."
+                                if source_filesize == destination_filesize:
+                                    if (
+                                        policies["check_identical_files_by"]
+                                        == "size"
+                                    ):
+                                        decision = policies["destination_older"]
+
+                                    elif (
+                                        policies["check_identical_files_by"]
+                                        == "content"
+                                    ):
+                                        raise NotImplementedError(
+                                            "Compare content with hash is not yet implemented"
+                                        )
+
+                                    else:
+                                        raise ValueError(
+                                            f"Invalid value for policy 'check_identical_files_by' : {policies['check_identical_files_by']}"
+                                        )
+
+                                else:
+                                    decision = policies["destination_older"]
+                                    warnings = "The destination file is older than source. "
+                                    "Transfering will most likely be okay."
 
                         else:
                             decision = policies["no_file_exists"]
@@ -567,3 +731,30 @@ class FileTransferManager:
                 progress.advance(task)
 
         return DataFrame(results)
+
+    def _check_session_files(self, session : Series, policies : Policies):
+        source_path = Path(str(session[source]))
+        destination_path = Path(str(session[destination]))
+
+        source_volume = get_volume(source_path, session["rel_path"])
+        destination_volume = get_volume(
+            destination_path, session["rel_path"]
+        )
+
+        for root, _, files in source_path.walk():
+            for file in files:
+                source_filepath = root / file
+                source_filesize = (
+                    source_filepath.stat().st_size * Quantity("bytes")
+                )
+                relative_filepath = source_filepath.relative_to(
+                    source_path
+                )
+                destination_filepath = (
+                    destination_path / relative_filepath
+                )
+        return 
+
+
+    def _check_file(self, source_path:Path, destination_path : Path, policies : Policies):
+        
