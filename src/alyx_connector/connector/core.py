@@ -44,8 +44,9 @@ class Connector(metaclass=Singleton):
     remote: WebClient
 
     def search(self, *args, **kwargs):
-        raise DeprecationWarning("Use connector.remote.search instead of connector.search")
-        # return self.remote.search(*args, **kwargs)
+        raise DeprecationWarning(
+            "Use connector.remote.search instead of connector.search"
+        )
 
     def __init__(
         self,
@@ -68,7 +69,9 @@ class Connector(metaclass=Singleton):
 
     @property
     def web_client(self):
-        raise DeprecationWarning("Use connector.remote instead or connector.web_client")
+        raise DeprecationWarning(
+            "Use connector.remote instead or connector.web_client"
+        )
 
     @property
     def username(self):
@@ -92,10 +95,10 @@ class Connector(metaclass=Singleton):
 
         if silent and (url is None or username is None):
             raise ValueError(
-                "If you require for a silent setup (no prompt), you must supply both url and username."
+                "If you require a silent setup (no prompt), you must supply both url and username."
             )
-            # Note that here, if you ask for silent setup and not password already exists for tht user,
-            # it will raise but this will be the responsability of the authenticate method.
+            # Note that here, if you ask for silent setup and no password exists yet for that user (token),
+            # it will raise, but this raise will be the responsability of the authenticate method.
         connector = Connector(use_default=False)
         connector.remote.select_user(
             url=url,
@@ -117,7 +120,9 @@ class Connector(metaclass=Singleton):
         if isinstance(session_or_sessions, Series):
             return Config(connector=self, session=session_or_sessions)
         for _, session in session_or_sessions.iterrows():
-            return Config(connector=self, session=session).registration_pipeline(session)
+            return Config(
+                connector=self, session=session
+            ).registration_pipeline(session)
 
     def __repr__(self):
         return (
